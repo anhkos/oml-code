@@ -1,0 +1,13 @@
+{
+    "projectName": "Oml",
+    "languages": [
+        {
+            "id": "oml",
+            "grammar": "src/oml.langium",
+            "fileExtensions": [
+                "oml"
+            ]
+        }
+    ],
+    "out": "src/generated"
+}

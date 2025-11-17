@@ -1,0 +1,275 @@
+/* OML Diagram Styling - VS Code Dark Theme */
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+html[data-vscode-theme-kind="light"],
+html[data-vscode-theme-kind="light"] body {
+  background: #ffffff;
+  color: #333333;
+}
+
+#sprotty {
+  width: 100%;
+  height: 100%;
+  background: #1e1e1e;
+  display: block;
+  position: relative; /* enable pseudo-element border */
+  box-sizing: border-box; /* include border in sizing so svg fits inside */
+  border: 1px solid #454545; /* full rectangular border */
+  border-radius: 3px;
+  overflow: hidden; /* prevent child content from overlapping rounded corners */
+}
+
+html[data-vscode-theme-kind="light"] #sprotty {
+  background: #ffffff;
+  border-color: #cccccc;
+}
+
+/* Graph and SVG elements */
+svg {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative;
+  z-index: 1; /* ensure SVG is above pseudo-border */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.sprotty-graph {
+  background: #1e1e1e;
+}
+
+html[data-vscode-theme-kind="light"] .sprotty-graph {
+  background: #ffffff;
+}
+
+/* Node styling - concept/aspect */
+/* Target Sprotty-generated rect elements directly (covers several class/name variants) */
+g.node\:rect > rect,
+g.rect > rect,
+rect.sprotty-node {
+  stroke: #007acc !important;
+  stroke-width: 2px !important;
+  stroke-linejoin: round !important;
+  fill: #1e1e1e !important;
+  rx: 6;
+  ry: 6;
+  stroke-opacity: 1 !important;
+  paint-order: stroke fill markers !important; /* draw stroke on top */
+  shape-rendering: geometricPrecision !important;
+  transition: stroke 0.1s, fill 0.1s;
+}
+
+/* Aggressive: target ANY g element that contains a rect and apply hover */
+g[id] > rect:hover {
+  stroke: #00b7ff !important;
+  fill: #1a1a2e !important;
+  stroke-width: 2.5px !important;
+}
+
+/* Target selected via parent g with selected class */
+g.selected > rect {
+  stroke: #00b7ff !important;
+  fill: #1a3a52 !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 4px #00b7ff) drop-shadow(0 0 6px #00b7ff);
+}
+
+/* Light theme overrides - use matching blue for both nodes and edges */
+html[data-vscode-theme-kind="light"] g.node\:rect > rect,
+html[data-vscode-theme-kind="light"] g.rect > rect,
+html[data-vscode-theme-kind="light"] rect.sprotty-node {
+  fill: #ffffff !important;
+  stroke: #0066cc !important;
+}
+
+html[data-vscode-theme-kind="light"] g[id] > rect:hover {
+  stroke: #0066cc !important;
+  fill: #e8f4ff !important;
+  stroke-width: 2.5px !important;
+}
+
+html[data-vscode-theme-kind="light"] g.selected > rect {
+  stroke: #0066cc !important;
+  fill: #cce5ff !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 4px #0066cc) drop-shadow(0 0 6px #0066cc);
+}
+
+/* Node hover – strong blue feedback */
+g.node\:rect:hover > rect,
+g.sprotty-node:hover > rect {
+  stroke: #00b7ff !important;
+  stroke-width: 2.5px !important;
+  fill: #1a1a2e !important;
+}
+
+html[data-vscode-theme-kind="light"] g.node\:rect:hover > rect,
+html[data-vscode-theme-kind="light"] g.sprotty-node:hover > rect {
+  stroke: #0066cc !important;
+  fill: #e8f4ff !important;
+}
+
+/* Node selection – blue highlight with glow */
+g.node\:rect.selected > rect,
+g.sprotty-node.selected > rect {
+  stroke: #00b7ff !important;
+  stroke-width: 3px !important;
+  fill: #1a3a52 !important;
+  filter: drop-shadow(0 0 4px #00b7ff) drop-shadow(0 0 6px #00b7ff);
+}
+
+html[data-vscode-theme-kind="light"] g.node\:rect.selected > rect,
+html[data-vscode-theme-kind="light"] g.sprotty-node.selected > rect {
+  fill: #cce5ff !important;
+  stroke: #0066cc !important;
+  filter: drop-shadow(0 0 4px #0066cc) drop-shadow(0 0 6px #0066cc);
+}
+
+/* Label styling */
+.sprotty-label,
+text.sprotty-label {
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  fill: #ce9178;
+  stroke: none;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: text-before-edge; /* align to top of label box */
+  font-weight: 500;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Compartment separator line inside nodes */
+line.oml-compartment-line {
+  stroke: #5d5d5d; /* slightly brighter for visibility */
+  stroke-width: 1.2px;
+}
+
+html[data-vscode-theme-kind="light"] line.oml-compartment-line {
+  stroke: #b0b0b0;
+}
+
+/* Property labels added by custom node view */
+g.sprotty-node text.oml-property-label {
+  text-anchor: start;
+  dominant-baseline: text-before-edge;
+  font-size: 12px;
+  fill: #ce9178; /* match header label color */
+}
+html[data-vscode-theme-kind="light"] g.sprotty-node text.oml-property-label {
+  fill: #a24f3a;
+}
+
+/* Edge styling */
+g.sprotty-edge > polyline,
+g.sprotty-edge > path,
+g.sprotty-edge > line {
+  fill: none;
+  stroke: #646695;
+  stroke-width: 1.5px;
+  opacity: 0.8;
+  /* Marker arrowheads are applied per-edge via the webview script based on edge kind. */
+}
+
+/* Hover on edges */
+g.sprotty-edge:hover > polyline,
+g.sprotty-edge:hover > path,
+g.sprotty-edge:hover > line {
+  stroke: #00b7ff !important; /* unified hover color */
+  stroke-width: 2px !important;
+  opacity: 1 !important;
+}
+
+html[data-vscode-theme-kind="light"] g.sprotty-edge:hover > polyline,
+html[data-vscode-theme-kind="light"] g.sprotty-edge:hover > path,
+html[data-vscode-theme-kind="light"] g.sprotty-edge:hover > line {
+  stroke: #0066cc !important;
+}
+
+/* Selected edges with glow */
+g.sprotty-edge.selected > polyline,
+g.sprotty-edge.selected > path,
+g.sprotty-edge.selected > line {
+  stroke: #00b7ff !important;
+  stroke-width: 2.5px !important;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 4px #00b7ff) drop-shadow(0 0 6px #00b7ff);
+  paint-order: stroke;
+}
+
+html[data-vscode-theme-kind="light"] g.sprotty-edge.selected > polyline,
+html[data-vscode-theme-kind="light"] g.sprotty-edge.selected > path,
+html[data-vscode-theme-kind="light"] g.sprotty-edge.selected > line {
+  stroke: #0066cc !important;
+  filter: drop-shadow(0 0 4px #0066cc) drop-shadow(0 0 6px #0066cc);
+}
+
+/* Edge label styling */
+g.sprotty-edge text.sprotty-label {
+  fill: #ce9178;
+}
+
+html[data-vscode-theme-kind="light"] .sprotty-viewport {
+  background: #ffffff;
+}
+
+.sprotty-html {
+  color: #e0e0e0;
+}
+
+html[data-vscode-theme-kind="light"] .sprotty-html {
+  color: #333333;
+}
+
+/* Enable interactions for pan/zoom; keep labels non-interactive. */
+#sprotty,
+#sprotty svg,
+#sprotty .sprotty-graph,
+#sprotty .sprotty-viewport {
+  pointer-events: auto !important;
+}
+
+/* Improve touch behavior for custom pan/zoom handlers */
+#sprotty {
+  touch-action: none; /* prevent browser-native panning/zooming */
+}
+
+/* If VS Code's split/resize handle visually hides the left extension border,
+   draw a 1px internal left border so the diagram area appears fully framed. */
+#sprotty::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #454545;
+  pointer-events: none;
+  z-index: 0; /* behind the svg */
+}
+
+html[data-vscode-theme-kind="light"] #sprotty::before {
+  background: #cccccc;
+}
+
+/* Hide the small '?' that is drawn when an edge routing fails. */
+/* Rendered as an SVG <text> with class `sprotty-edge-dangling`. */
+text.sprotty-edge-dangling {
+  display: none !important;
+}

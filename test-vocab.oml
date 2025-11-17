@@ -1,0 +1,32 @@
+vocabulary <http://example.com/test-vocab#> as test-vocab {
+    
+    aspect IdentifiedThing [
+        key hasId
+    ]
+    
+    scalar property hasId [
+        domain IdentifiedThing
+        range xsd:string
+    ]
+    
+    scalar property hasName [
+        domain IdentifiedThing
+        range xsd:string
+    ]
+    
+    concept Person < IdentifiedThing
+    
+    concept Organization < IdentifiedThing
+    
+    relation entity Employment [
+        from Person
+        to Organization
+        forward employs
+        reverse worksFor
+    ]
+    
+    scalar property hasSalary [
+        domain Employment
+        range xsd:double
+    ]
+}

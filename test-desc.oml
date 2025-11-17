@@ -1,0 +1,47 @@
+description <http://example.com/test-desc#> as test-desc {
+    
+    extends <http://example.com/test-vocab#> as test-vocab
+    
+    instance john : test-vocab:Person [
+        test-vocab:hasId "P001"
+        test-vocab:hasName "John Smith"
+    ]
+    
+    instance jane : test-vocab:Person [
+        test-vocab:hasId "P002"
+        test-vocab:hasName "Jane Doe"
+    ]
+    
+    instance acme : test-vocab:Organization [
+        test-vocab:hasId "O001"
+        test-vocab:hasName "ACME Corp"
+    ]
+    
+    instance techco : test-vocab:Organization [
+        test-vocab:hasId "O002"
+        test-vocab:hasName "TechCo Inc"
+    ]
+    
+    relation instance emp1 : test-vocab:Employment [
+        from john
+        to acme
+        test-vocab:hasSalary 75000.0
+    ]
+    
+    relation instance emp2 : test-vocab:Employment [
+        from jane
+        to techco
+        test-vocab:hasSalary 95000.0
+    ]
+    
+    relation instance emp3 : test-vocab:Employment [
+        from jane
+        to acme
+        test-vocab:hasSalary 85000.0
+    ]
+    
+    // Test ref instance with additional property values
+    ref instance john [
+        test-vocab:hasName "John A. Smith"
+    ]
+}
