@@ -5,13 +5,13 @@
             "path": "./packages/language/tsconfig.src.json"
         },
         {
-            "path": "./packages/language/tsconfig.test.json"
-        },
-        {
             "path": "./packages/cli/tsconfig.json"
         },
         {
             "path": "./packages/extension/tsconfig.json"
+        },
+        {
+            "path": "./packages/mcp-server/tsconfig.json"
         }
     ]
 }
