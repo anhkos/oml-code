@@ -1094,7 +1094,6 @@ vscodeApi.postMessage({ type: 'requestModel' });
           type: 'navigateToElement',
           elementId: elementIdToSend
         });
-        console.log('[OML Diagram] Double-clicked element ID:', elementIdToSend);
         return;
       }
     }

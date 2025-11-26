@@ -135,7 +135,6 @@ class DiagramContext {
             hasMarker: true,
             ...loc
         });
-        console.log('[OML Diagram] addSpecialization: loc for edge', this.edges[this.edges.length - 1]);
 
         // Handle other elements
 
@@ -602,6 +601,8 @@ export async function computeDiagramModel(shared: LangiumSharedServices, uri: st
 
     const root: any = document.parseResult.value;
     const ctx = new DiagramContext(root);
+
+    console.log("URI called: ", uri)
 
     if (isVocabulary(root)) {
         return buildVocabularyDiagram(root, ctx);
