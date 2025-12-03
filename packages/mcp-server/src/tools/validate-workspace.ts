@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { URI } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
-import { getOmlSharedServices, log, isWorkspaceInitialized, getWorkspaceRoot } from "../utils/oml-context.js";
+import { getOmlSharedServices, log } from "../utils/oml-context.js";
 import type { ValidationResult, ValidationError } from "./validate.js";
+import { getTemplate } from "./template.js";
 
 
 export function findOmlFiles(rootPath: string): string[] {
@@ -106,43 +107,111 @@ export async function validateOmlWithWorkspace(args: {
 }
 
 export async function getDiagnostics(args: { uri: string }): Promise<{
-  diagnostics: Diagnostic[];
-  workspaceInitialized: boolean;
-  workspaceRoot: string | null;
-  hint?: string;
+  valid: boolean;
+  errorCount: number;
+  warningCount: number;
+  errors: Array<{
+    line: number;
+    column: number;
+    message: string;
+    severity: "error" | "warning" | "info";
+  }>;
+  summary: string;
+  referenceTemplate?: string;
+  templateType?: string;
 }> {
   const { uri } = args;
   const shared = getOmlSharedServices();
   const docs = shared.workspace.LangiumDocuments;
-  
-  const workspaceInitialized = isWorkspaceInitialized();
-  const workspaceRoot = getWorkspaceRoot();
-  
-  // print URI of the first document for debugging
-  log("debug", "Available documents", { documentUris: docs.all.map(d => d.uri.toString()) });
+  const builder = shared.workspace.DocumentBuilder;
 
   const decodedUri = decodeURIComponent(uri);
   const documentUri = decodedUri.startsWith("file://") ? URI.parse(decodedUri) : URI.file(decodedUri);
-  const doc = docs.getDocument(documentUri);
-  log("info", "get_diagnostics called", { uri: documentUri.toString(), workspaceInitialized });
+  
+  try {
+    // Always re-read and rebuild the document to get fresh content from disk
+    // This ensures we validate the current file state, not a cached version
+    let doc = docs.getDocument(documentUri);
+    
+    if (doc) {
+      // Document exists in cache — delete it and re-create to get fresh content
+      await builder.update([documentUri], []);  // Remove from workspace
+    }
+    
+    // Create fresh document from disk and build it
+    doc = await docs.getOrCreateDocument(documentUri);
+    await builder.build([doc], { validation: true });
 
-  if (!doc) {
-    log("info", "Document not found for URI", { uri: documentUri.toString() });
+    const rawDiagnostics = (doc.diagnostics ?? []) as Diagnostic[];
+  
+    // Convert to simplified format
+    const errors = rawDiagnostics.map(d => ({
+      line: d.range.start.line + 1,
+      column: d.range.start.character + 1,
+      message: d.message,
+      severity: (d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info") as "error" | "warning" | "info"
+    }));
 
+    const errorCount = errors.filter(e => e.severity === "error").length;
+    const warningCount = errors.filter(e => e.severity === "warning").length;
+    const valid = errorCount === 0;
+
+    // Generate a simple summary
+    let summary: string;
+    if (valid && warningCount === 0) {
+      summary = "✓ No errors or warnings";
+    } else if (valid) {
+      summary = `✓ Valid with ${warningCount} warning(s)`;
+    } else {
+      summary = `✗ ${errorCount} error(s)${warningCount > 0 ? `, ${warningCount} warning(s)` : ""}`;
+    }
+
+    // If there are parser errors (cryptic "Expecting token" messages), include a reference template
+    // This helps the AI compare against a working example
+    const hasParserErrors = errors.some(e => 
+      e.message.includes("Expecting") || 
+      e.message.includes("expecting") ||
+      e.message.includes("Token")
+    );
+
+    if (hasParserErrors && doc.textDocument) {
+      const content = doc.textDocument.getText();
+      
+      // Detect what type of OML file this is and provide the right template
+      let templateType: "vocabulary" | "description" | undefined;
+      if (content.includes("vocabulary")) {
+        templateType = "vocabulary";
+      } else if (content.includes("description")) {
+        templateType = "description";
+      }
+
+      if (templateType) {
+        const template = getTemplate(templateType);
+        return {
+          valid,
+          errorCount,
+          warningCount,
+          errors,
+          summary: `${summary} — Compare your code against the reference template below to find syntax issues.`,
+          referenceTemplate: template,
+          templateType
+        };
+      }
+    }
+
+    return { valid, errorCount, warningCount, errors, summary };
+  } catch (err) {
     return {
-      diagnostics: [],
-      workspaceInitialized,
-      workspaceRoot,
-      hint: workspaceInitialized 
-        ? "Document not found. Make sure the file path is correct and exists in the workspace."
-        : "Workspace not initialized! Call initialize_workspace first to load all OML files.",
+      valid: false,
+      errorCount: 1,
+      warningCount: 0,
+      errors: [{
+        line: 1,
+        column: 1,
+        message: `Could not load file: ${String(err)}`,
+        severity: "error"
+      }],
+      summary: "File could not be loaded"
     };
   }
-
-  log("info", "diagnostics retrieved", { diagnostics: doc.diagnostics ?? [] });
-  return {
-    diagnostics: (doc.diagnostics ?? []) as Diagnostic[],
-    workspaceInitialized,
-    workspaceRoot,
-  };
 }
