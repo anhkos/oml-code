@@ -3,7 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { URI } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
-import { getOmlSharedServices, log } from "../utils/oml-context.js";
+import {
+  getOmlSharedServices,
+  initializeWorkspace,
+  log,
+} from "../utils/oml-context.js";
 
 export interface ValidationError {
   line: number;
@@ -115,7 +119,39 @@ export async function validateOml(args: { uri?: string }): Promise<ValidationRes
       count: diagnostics.length,
     });
 
-    const errors = diagnostics.map((d) => enrichDiagnostic(d, source));
+    let errors = diagnostics.map((d) => enrichDiagnostic(d, source));
+
+    // If we hit unresolved references, attempt a workspace init and re-validate
+    if (hasUnresolvedReferences(diagnostics)) {
+      const workspaceRoot = findWorkspaceRoot(mainFsPath);
+      if (workspaceRoot) {
+        log("info", "Unresolved refs; initializing workspace", {
+          workspaceRoot,
+        });
+
+        await initializeWorkspace(workspaceRoot, true);
+
+        const refreshedDoc =
+          docs.getDocument(mainUri) ??
+          documents.find((d) => d.uri.toString() === mainUri.toString());
+
+        if (refreshedDoc) {
+          const refreshedDiagnostics: Diagnostic[] = (refreshedDoc.diagnostics ??
+            []) as Diagnostic[];
+          const refreshedSource = fs.readFileSync(mainFsPath, "utf-8");
+          errors = refreshedDiagnostics.map((d) =>
+            enrichDiagnostic(d, refreshedSource)
+          );
+          log("debug", "Revalidated after workspace init", {
+            count: refreshedDiagnostics.length,
+          });
+        } else {
+          log("error", "validate_oml: main document missing after workspace init", {
+            uri: mainUri.toString(),
+          });
+        }
+      }
+    }
 
     return {
       valid: errors.length === 0,
@@ -190,4 +226,55 @@ function enrichDiagnostic(
         : "info",
     ...(hint ? { hint } : {}),
   };
+}
+
+/**
+ * Look for diagnostics that signal missing imports or unresolved references.
+ */
+function hasUnresolvedReferences(diagnostics: Diagnostic[]): boolean {
+  return diagnostics.some((d) => {
+    const msg = d.message.toLowerCase();
+    return (
+      msg.includes("could not resolve") ||
+      msg.includes("cannot be resolved") ||
+      msg.includes("could not find") ||
+      msg.includes("unresolved") ||
+      msg.includes("unknown namespace")
+    );
+  });
+}
+
+/**
+ * Try to locate the workspace root by walking up the directory tree.
+ * This mirrors the heuristic used in the workspace validator so build/oml deps are included.
+ */
+function findWorkspaceRoot(filePath: string): string | null {
+  let dir = path.dirname(filePath);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const hasGradle = entries.some(
+        (e) => e.name === "build.gradle" || e.name === "build.gradle.kts"
+      );
+      const hasPackageJson = entries.some((e) => e.name === "package.json");
+      const hasGit = entries.some((e) => e.name === ".git");
+
+      if (hasGradle) return dir;
+      if (hasGit || hasPackageJson) {
+        const hasSrcOml = fs.existsSync(path.join(dir, "src", "oml"));
+        const hasBuildOml = fs.existsSync(path.join(dir, "build", "oml"));
+        const hasOmlDir = entries.some(
+          (e) => e.isDirectory() && e.name === "oml"
+        );
+        if (hasSrcOml || hasBuildOml || hasOmlDir) return dir;
+      }
+    } catch {
+      // ignore and keep walking up
+    }
+    dir = path.dirname(dir);
+  }
+
+  return path.dirname(filePath);
 }

@@ -2,9 +2,63 @@ import fs from "node:fs";
 import path from "node:path";
 import { URI } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
-import { getOmlSharedServices, log } from "../utils/oml-context.js";
+import { getOmlSharedServices, log, initializeWorkspace} from "../utils/oml-context.js";
 import type { ValidationResult, ValidationError } from "./validate.js";
 import { getTemplate } from "./template.js";
+
+/**
+ * Try to find the OML workspace root by walking up the directory tree.
+ * Looks for project root markers (package.json, build.gradle, .git) because
+ * OML projects often have dependencies in build/oml that need to be included.
+ * 
+ * Priority:
+ * 1. Project root with build.gradle or package.json (includes build/oml dependencies)
+ * 2. Directory with .oml files and project structure
+ * 3. Fallback to file's directory
+ */
+function findWorkspaceRoot(filePath: string): string | null {
+  let dir = path.dirname(filePath);
+  const root = path.parse(dir).root;
+  
+  while (dir !== root) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      
+      // Check for project root markers - these indicate the true project root
+      // which includes build/oml with external dependencies
+      const hasGradle = entries.some(e => e.name === 'build.gradle' || e.name === 'build.gradle.kts');
+      const hasPackageJson = entries.some(e => e.name === 'package.json');
+      const hasGit = entries.some(e => e.name === '.git');
+      
+      // If we find a Gradle project, this is definitely the root
+      // Gradle OML projects have dependencies downloaded to build/oml
+      if (hasGradle) {
+        log("info", "Found Gradle project root", { dir });
+        return dir;
+      }
+      
+      // If we find .git or package.json, check if this looks like an OML project
+      if (hasGit || hasPackageJson) {
+        // Check if there are OML files somewhere under this directory
+        const hasSrcOml = fs.existsSync(path.join(dir, 'src', 'oml'));
+        const hasBuildOml = fs.existsSync(path.join(dir, 'build', 'oml'));
+        const hasOmlDir = entries.some(e => e.isDirectory() && e.name === 'oml');
+        
+        if (hasSrcOml || hasBuildOml || hasOmlDir) {
+          log("info", "Found OML project root", { dir, hasSrcOml, hasBuildOml });
+          return dir;
+        }
+      }
+    } catch {
+      // Can't read directory, keep going up
+    }
+    
+    dir = path.dirname(dir);
+  }
+  
+  // Fallback: use the file's directory
+  return path.dirname(filePath);
+}
 
 
 export function findOmlFiles(rootPath: string): string[] {
@@ -119,6 +173,8 @@ export async function getDiagnostics(args: { uri: string }): Promise<{
   summary: string;
   referenceTemplate?: string;
   templateType?: string;
+  workspaceAutoInitialized?: boolean;
+  workspaceRoot?: string;
 }> {
   const { uri } = args;
   const shared = getOmlSharedServices();
@@ -127,30 +183,78 @@ export async function getDiagnostics(args: { uri: string }): Promise<{
 
   const decodedUri = decodeURIComponent(uri);
   const documentUri = decodedUri.startsWith("file://") ? URI.parse(decodedUri) : URI.file(decodedUri);
+  const filePath = documentUri.fsPath;
   
-  try {
-    // Always re-read and rebuild the document to get fresh content from disk
-    // This ensures we validate the current file state, not a cached version
+  // Helper function to run validation and get results
+  async function runValidation(): Promise<{
+    errors: Array<{ line: number; column: number; message: string; severity: "error" | "warning" | "info" }>;
+    doc: any;
+  }> {
+    const freshContent = fs.readFileSync(filePath, 'utf-8');
     let doc = docs.getDocument(documentUri);
     
     if (doc) {
-      // Document exists in cache — delete it and re-create to get fresh content
-      await builder.update([documentUri], []);  // Remove from workspace
+      const textDoc = doc.textDocument;
+      const currentContent = textDoc.getText();
+      
+      if (currentContent !== freshContent) {
+        (textDoc as any).update([{ text: freshContent }], textDoc.version + 1);
+        await builder.update([documentUri], []);
+        await builder.build([doc], { validation: true });
+      }
+    } else {
+      doc = await docs.getOrCreateDocument(documentUri);
+      await builder.build([doc], { validation: true });
     }
-    
-    // Create fresh document from disk and build it
-    doc = await docs.getOrCreateDocument(documentUri);
-    await builder.build([doc], { validation: true });
 
     const rawDiagnostics = (doc.diagnostics ?? []) as Diagnostic[];
-  
-    // Convert to simplified format
     const errors = rawDiagnostics.map(d => ({
       line: d.range.start.line + 1,
       column: d.range.start.character + 1,
       message: d.message,
       severity: (d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info") as "error" | "warning" | "info"
     }));
+    
+    return { errors, doc };
+  }
+  
+  try {
+    // First pass: validate the file
+    let { errors, doc } = await runValidation();
+    let workspaceAutoInitialized = false;
+    let workspaceRoot: string | undefined;
+    
+    // Check if there are unresolved reference errors (likely missing workspace context)
+    const hasUnresolvedRefs = errors.some(e => 
+      e.message.includes("Could not resolve reference") ||
+      e.message.includes("cannot be resolved") ||
+      e.message.includes("Could not find")
+    );
+    
+    // If we have unresolved refs, try to auto-initialize the workspace for this file
+    // We do this even if a workspace was previously initialized, because it might be
+    // a different workspace or the file might be outside the current workspace
+    if (hasUnresolvedRefs) {
+      const detectedRoot = findWorkspaceRoot(filePath);
+      
+      if (detectedRoot) {
+        log("info", "Auto-initializing workspace due to unresolved references", { detectedRoot });
+        
+        try {
+          // Force re-initialization to ensure we have the right workspace
+          await initializeWorkspace(detectedRoot, true);
+          workspaceAutoInitialized = true;
+          workspaceRoot = detectedRoot;
+          
+          // Re-validate after workspace initialization
+          const result = await runValidation();
+          errors = result.errors;
+          doc = result.doc;
+        } catch (initErr) {
+          log("error", "Failed to auto-initialize workspace", { error: String(initErr) });
+        }
+      }
+    }
 
     const errorCount = errors.filter(e => e.severity === "error").length;
     const warningCount = errors.filter(e => e.severity === "warning").length;
@@ -194,9 +298,23 @@ export async function getDiagnostics(args: { uri: string }): Promise<{
           errors,
           summary: `${summary} — Compare your code against the reference template below to find syntax issues.`,
           referenceTemplate: template,
-          templateType
+          templateType,
+          ...(workspaceAutoInitialized && { workspaceAutoInitialized, workspaceRoot })
         };
       }
+    }
+
+    // Add workspace info if we auto-initialized
+    if (workspaceAutoInitialized) {
+      return { 
+        valid, 
+        errorCount, 
+        warningCount, 
+        errors, 
+        summary: `${summary} (workspace auto-initialized from ${workspaceRoot})`,
+        workspaceAutoInitialized,
+        workspaceRoot
+      };
     }
 
     return { valid, errorCount, warningCount, errors, summary };
