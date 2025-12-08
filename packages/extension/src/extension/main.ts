@@ -2,12 +2,25 @@ import type { LanguageClientOptions, ServerOptions } from 'vscode-languageclient
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node.js';
+import { OmlLspBridge } from './lsp-bridge.js';
 
 let client: LanguageClient;
+let lspBridge: OmlLspBridge;
 
 // This function is called when the extension is activated.
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     client = await startLanguageClient(context);
+    
+    // Start the LSP bridge server
+    const bridgePort = 5007; // Same port as VSC-MCP uses
+    lspBridge = new OmlLspBridge(client, bridgePort);
+    try {
+        await lspBridge.start();
+        console.log(`[OML] LSP Bridge started on port ${bridgePort}`);
+    } catch (error) {
+        console.error('[OML] Failed to start LSP Bridge:', error);
+    }
+    
     // Track open diagram panels and their associated document URIs
     const openPanels: Array<{ panel: vscode.WebviewPanel, uri: string }> = [];
 
@@ -190,6 +203,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 // This function is called when the extension is deactivated.
 export function deactivate(): Thenable<void> | undefined {
+    if (lspBridge) {
+        lspBridge.stop();
+    }
     if (client) {
         return client.stop();
     }

@@ -9,9 +9,6 @@
         },
         {
             "path": "./packages/extension/tsconfig.json"
-        },
-        {
-            "path": "./packages/mcp-server/tsconfig.json"
         }
     ]
 }

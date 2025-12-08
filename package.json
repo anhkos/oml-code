@@ -25,7 +25,14 @@
     "workspaces": [
         "packages/language",
         "packages/cli",
-        "packages/extension",
-        "packages/mcp-server"
-    ]
+        "packages/extension"
+    ],
+    "dependencies": {
+        "langium-ai-mcp": "file:../langium-ai/packages/langium-ai-mcp",
+        "langium-ai-tools": "file:../langium-ai/packages/langium-ai-tools",
+        "vscode-jsonrpc": "^8.2.1",
+        "vscode-languageserver": "^9.0.1",
+        "zod": "^4.1.13",
+        "zod-to-json-schema": "^3.25.0"
+    }
 }
