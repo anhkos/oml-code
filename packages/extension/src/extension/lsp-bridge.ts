@@ -9,7 +9,7 @@ import {
 
 /**
  * Creates an LSP bridge server that forwards requests between
- * external clients and the OML language server running in VS Code
+ * the MCP server and the OML language server running in VS Code.
  */
 export class OmlLspBridge {
     private server: net.Server | undefined;
@@ -31,6 +31,7 @@ export class OmlLspBridge {
             connection.onRequest(async (method, params) => {
                 try {
                     // Handle textDocument/diagnostic specially using VS Code API
+                    // TODO: Extend this to other requests as needed
                     if (method === 'textDocument/diagnostic') {
                         return await this.handleDiagnosticRequest(params);
                     }

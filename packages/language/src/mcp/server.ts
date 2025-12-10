@@ -2,7 +2,8 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { validateOmlTool, validateOmlHandler } from './validate-tool.js';
+import { validateOmlTool, validateOmlHandler } from './tools/validate-tool.js';
+import { addConceptTool, addConceptHandler } from './tools/add-concept-tool.js';
 
 async function main() {
     // Create MCP server
@@ -11,13 +12,18 @@ async function main() {
         version: '0.1.0',
     });
 
-    // Register validate tool
-    // @ts-expect-error - MCP SDK type instantiation issue
     server.tool(
         validateOmlTool.name,
         validateOmlTool.description,
-        validateOmlTool.paramsSchema,
-        validateOmlHandler
+        validateOmlTool.paramsSchema as any,
+        validateOmlHandler as any
+    );
+
+    server.tool(
+        addConceptTool.name,
+        addConceptTool.description,
+        addConceptTool.paramsSchema as any,
+        addConceptHandler as any
     );
 
     // Start the server

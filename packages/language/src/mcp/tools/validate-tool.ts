@@ -34,22 +34,24 @@ function pathToFileUri(filePath: string): string {
     return 'file://' + absolute;
 }
 
-export const validateOmlTool = {
-    name: 'validate_oml',
-    description: 'Validates OML code for syntax and semantic errors with full workspace context',
-    paramsSchema: {
-        uri: z.string().describe('File path to the OML document (absolute or relative path)'),
-    },
+const validateParamsSchema = {
+    uri: z.string().describe('File path to the OML document (absolute or relative path)'),
 };
 
-export async function validateOmlHandler(params: { uri: string }) {
+export const validateOmlTool = {
+    name: 'validate_oml' as const,
+    description: 'Validates OML code for syntax and semantic errors with full workspace context',
+    paramsSchema: validateParamsSchema,
+};
+
+export async function validateOmlHandler({ uri }: { uri: string }) {
     let socket: net.Socket | undefined;
     let connection: ReturnType<typeof createMessageConnection> | undefined;
     
     try {
         // Convert file path to proper file URI
-        const fileUri = pathToFileUri(params.uri);
-        console.log(`[validate_oml] Converting path to URI: ${params.uri} → ${fileUri}`);
+        const fileUri = pathToFileUri(uri);
+        console.log(`[validate_oml] Converting path to URI: ${uri} ƒ+' ${fileUri}`);
 
         // Connect to the LSP bridge
         socket = net.connect({ port: LSP_BRIDGE_PORT });
@@ -92,7 +94,7 @@ export async function validateOmlHandler(params: { uri: string }) {
                 content: [
                     {
                         type: 'text' as const,
-                        text: '✓ OML code is valid - no errors found',
+                        text: 'ƒo" OML code is valid - no errors found',
                     },
                 ],
             };
