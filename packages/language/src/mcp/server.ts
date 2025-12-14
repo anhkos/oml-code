@@ -2,8 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { validateOmlTool, validateOmlHandler } from './tools/validate-tool.js';
-import { addConceptTool, addConceptHandler } from './tools/add-concept-tool.js';
+import { allTools } from './tools/index.js';
 
 async function main() {
     // Create MCP server
@@ -12,19 +11,9 @@ async function main() {
         version: '0.1.0',
     });
 
-    server.tool(
-        validateOmlTool.name,
-        validateOmlTool.description,
-        validateOmlTool.paramsSchema as any,
-        validateOmlHandler as any
-    );
-
-    server.tool(
-        addConceptTool.name,
-        addConceptTool.description,
-        addConceptTool.paramsSchema as any,
-        addConceptHandler as any
-    );
+    for (const { tool, handler } of allTools) {
+        server.tool(tool.name, tool.description, tool.paramsSchema as any, handler as any);
+    }
 
     // Start the server
     const transport = new StdioServerTransport();
