@@ -15,6 +15,7 @@ const paramsSchema = {
     name: z.string().describe('Concept name to create'),
     keys: z.array(z.array(z.string())).optional().describe('Optional key property groups'),
     instanceEnumeration: z.array(z.string()).optional().describe('Optional instance enumeration list'),
+    superTerms: z.array(z.string()).optional().describe('Optional specialization super terms to attach to the concept header'),
     annotations: z.array(annotationParamSchema).optional(),
 };
 
@@ -25,7 +26,7 @@ export const createConceptTool = {
 };
 
 export const createConceptHandler = async (
-    { ontology, name, keys, instanceEnumeration, annotations }: { ontology: string; name: string; keys?: string[][]; instanceEnumeration?: string[]; annotations?: AnnotationParam[] }
+    { ontology, name, keys, instanceEnumeration, superTerms, annotations }: { ontology: string; name: string; keys?: string[][]; instanceEnumeration?: string[]; superTerms?: string[]; annotations?: AnnotationParam[] }
 ) => {
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
@@ -49,8 +50,9 @@ export const createConceptHandler = async (
         const keyText = buildKeyLines(keys, innerIndent, eol);
         const hasBlock = Boolean(enumerationText || keyText);
 
+        const specializationText = superTerms && superTerms.length > 0 ? ` < ${Array.from(new Set(superTerms)).join(', ')}` : '';
         const block = hasBlock ? ` [${eol}${enumerationText}${keyText}${indent}]` : '';
-        const conceptText = `${annotationsText}${indent}concept ${name}${block}${eol}${eol}`;
+        const conceptText = `${annotationsText}${indent}concept ${name}${specializationText}${block}${eol}${eol}`;
 
         const newContent = insertBeforeClosingBrace(text, conceptText);
         await writeFileAndNotify(filePath, fileUri, newContent);

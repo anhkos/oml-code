@@ -53,12 +53,27 @@ export const addSpecializationHandler = async ({ ontology, term, superTerms }: {
             const segment = `< ${deduped.join(', ')}`;
             updatedTermText = termText.slice(0, spec.start) + segment + termText.slice(spec.end);
         } else {
-            // Insert after the member header (after closing block if present)
-            const closingBlock = termText.lastIndexOf(']');
-            const insertionPoint = closingBlock !== -1 ? closingBlock + 1 : termText.indexOf('\n') !== -1 ? termText.indexOf('\n') : termText.length;
-            const before = termText.slice(0, insertionPoint).replace(/[ \t]+$/g, '');
-            const after = termText.slice(insertionPoint);
-            updatedTermText = `${before} < ${deduped.join(', ')}${after}`;
+            // Insert into the term header line, not into annotations
+            // Find the header keyword line (concept|aspect|relation|scalar|property)
+            const headerMatch = termText.match(/^(.*?)(concept|aspect|relation|scalar|annotation property|scalar property)\s+[A-Za-z_][A-Za-z0-9_\-]*/m);
+            if (headerMatch) {
+                const headerStart = headerMatch.index ?? 0;
+                const headerLineStart = headerStart;
+                // Find end of header line: before a block '[' or at first EOL
+                const newlineIdx = termText.indexOf('\n', headerLineStart);
+                const blockIdx = termText.indexOf('[', headerLineStart);
+                const headerLineEnd = blockIdx !== -1 && (newlineIdx === -1 || blockIdx < newlineIdx) ? blockIdx : (newlineIdx !== -1 ? newlineIdx : termText.length);
+                const beforeHeader = termText.slice(0, headerLineEnd).replace(/[ \t]+$/g, '');
+                const afterHeader = termText.slice(headerLineEnd);
+                updatedTermText = `${beforeHeader} < ${deduped.join(', ')}${afterHeader}`;
+            } else {
+                // Fallback: previous behavior but avoid inserting into annotation lines
+                const firstConceptIdx = termText.search(/\n/);
+                const insertionPoint = firstConceptIdx !== -1 ? firstConceptIdx : termText.length;
+                const before = termText.slice(0, insertionPoint).replace(/[ \t]+$/g, '');
+                const after = termText.slice(insertionPoint);
+                updatedTermText = `${before} < ${deduped.join(', ')}${after}`;
+            }
         }
 
         const newContent = text.slice(0, node.$cstNode.offset) + updatedTermText + text.slice(node.$cstNode.end);

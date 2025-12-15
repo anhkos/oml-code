@@ -25,6 +25,7 @@ const paramsSchema = {
     irreflexive: z.boolean().optional(),
     transitive: z.boolean().optional(),
     keys: z.array(z.array(z.string())).optional(),
+    superTerms: z.array(z.string()).optional().describe('Optional specialization super terms to attach to the relation entity'),
     annotations: z.array(annotationParamSchema).optional(),
 };
 
@@ -50,6 +51,7 @@ export const createRelationEntityHandler = async (
         irreflexive?: boolean;
         transitive?: boolean;
         keys?: string[][];
+        superTerms?: string[];
         annotations?: AnnotationParam[];
     }
 ) => {
@@ -97,7 +99,9 @@ export const createRelationEntityHandler = async (
         body += buildKeyLines(keys, innerIndent, eol);
 
         const block = body ? ` [${eol}${body}${indent}]` : '';
-        const relationText = `${annotationsText}${indent}relation entity ${name}${block}${eol}${eol}`;
+        const specializationText = params.superTerms && params.superTerms.length > 0 ? ` < ${Array.from(new Set(params.superTerms)).join(', ')}` : '';
+        // For relation entity, specialization appears after the block per style
+        const relationText = `${annotationsText}${indent}relation entity ${name}${block}${specializationText}${eol}${eol}`;
 
         const newContent = insertBeforeClosingBrace(text, relationText);
         await writeFileAndNotify(filePath, fileUri, newContent);

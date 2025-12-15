@@ -1,47 +1,13 @@
 import { z } from 'zod';
 import * as fs from 'fs';
-import * as path from 'path';
 import { URI } from 'langium';
+import * as path from 'path';
 import { createOmlServices } from '../../oml-module.js';
 import { NodeFileSystem } from 'langium/node';
 import { Vocabulary, isVocabulary } from '../../generated/ast.js';
 import * as net from 'net';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
-
-const LSP_BRIDGE_PORT = 5007;
-
-/**
- * Convert a file path to a file URI
- */
-function pathToFileUri(filePath: string): string {
-    if (filePath.startsWith('file://')) {
-        return filePath;
-    }
-    const normalized = path.resolve(filePath);
-    const withForwardSlashes = normalized.replace(/\\/g, '/');
-    const absolute = withForwardSlashes.startsWith('/') ? withForwardSlashes : '/' + withForwardSlashes;
-    return 'file://' + absolute;
-}
-
-/**
- * Convert a file URI to a local file path
- */
-function fileUriToPath(fileUri: string): string {
-    // Remove file:// prefix
-    let filePath = fileUri.replace('file://', '');
-    
-    // Windows: Convert /C:/path to C:\path
-    if (/^\/[A-Za-z]:/.test(filePath)) {
-        filePath = filePath.substring(1); // Remove leading /
-    }
-    
-    // Convert forward slashes to backslashes on Windows
-    if (process.platform === 'win32') {
-        filePath = filePath.replace(/\//g, '\\');
-    }
-    
-    return filePath;
-}
+import { LSP_BRIDGE_PORT, pathToFileUri, fileUriToPath } from './common.js';
 
 const addConceptParamsSchema = {
     uri: z.string().describe('File path to the OML vocabulary document'),

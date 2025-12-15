@@ -19,11 +19,12 @@ export function buildFromToLines(
     eol: string
 ): string {
     let lines = '';
+    const normalizeRef = (r: string) => r.replace(/^\^/, '').replace(/\b\^([A-Za-z_][A-Za-z0-9_]*)\:/, (m, p) => `${p}:`);
     if (sources && sources.length > 0) {
-        lines += `${indent}from ${sources.join(', ')}${eol}`;
+        lines += `${indent}from ${sources.map(normalizeRef).join(', ')}${eol}`;
     }
     if (targets && targets.length > 0) {
-        lines += `${indent}to ${targets.join(', ')}${eol}`;
+        lines += `${indent}to ${targets.map(normalizeRef).join(', ')}${eol}`;
     }
     return lines;
 }

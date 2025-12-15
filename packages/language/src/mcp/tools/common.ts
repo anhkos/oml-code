@@ -55,22 +55,15 @@ export type AnyTerm =
     | UnreifiedRelation;
 
 export function pathToFileUri(filePath: string): string {
-    if (filePath.startsWith('file://')) return filePath;
-    const normalized = path.resolve(filePath);
-    const withForward = normalized.replace(/\\/g, '/');
-    const absolute = withForward.startsWith('/') ? withForward : '/' + withForward;
-    return 'file://' + absolute;
+    if (filePath.startsWith('file://')) {
+        return filePath;
+    }
+    const absolutePath = path.resolve(filePath);
+    return URI.file(absolutePath).toString();
 }
 
 export function fileUriToPath(fileUri: string): string {
-    let filePath = fileUri.replace('file://', '');
-    if (/^\/[A-Za-z]:/.test(filePath)) {
-        filePath = filePath.substring(1);
-    }
-    if (process.platform === 'win32') {
-        filePath = filePath.replace(/\//g, '\\');
-    }
-    return filePath;
+    return URI.parse(fileUri).fsPath;
 }
 
 export async function loadVocabularyDocument(ontology: string) {
