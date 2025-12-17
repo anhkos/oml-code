@@ -1,4 +1,5 @@
 import type { AstNodeDescription, ReferenceInfo, Stream } from 'langium';
+import { stream } from 'langium';
 import type { CompletionItem, TextEdit } from 'vscode-languageserver-types';
 import { DefaultCompletionProvider, type CompletionContext, type CompletionValueItem } from 'langium/lsp';
 import { Element, isDescription, isDescriptionBox, isMember, isOntology, isVocabulary, isVocabularyBundle, Member, Ontology } from './generated/ast.js';
@@ -12,10 +13,61 @@ export class OmlCompletionProvider extends DefaultCompletionProvider {
   /**
    * Get reference candidates - include both local definitions and imported IRIs
    * Local definitions don't start with '<', imported ones do
+   * 
+   * Enhanced to include ALL workspace concepts/aspects for auto-import suggestions
    */
-  protected override getReferenceCandidates(refInfo: ReferenceInfo, _context: CompletionContext): Stream<AstNodeDescription> {
-    // Return all elements in scope (both local and imported)
-    return this.scopeProvider.getScope(refInfo).getAllElements();
+  protected override getReferenceCandidates(refInfo: ReferenceInfo, context: CompletionContext): Stream<AstNodeDescription> {
+    // Get elements already in scope (local + imported)
+    const scopedCandidates = this.scopeProvider.getScope(refInfo).getAllElements();
+    
+    // If this is a specialization context (entity/concept references), also include
+    // ALL concepts/aspects from the workspace for auto-import suggestions
+    try {
+      const refType = this.astReflection.getReferenceType(refInfo);
+      if (refType === 'Aspect' || refType === 'Concept' || refType === 'Entity' || refType === 'RelationEntity') {
+        const langDocs = (this.scopeProvider as any).services?.shared?.workspace?.LangiumDocuments;
+        if (!langDocs) return scopedCandidates;
+        
+        const workspaceCandidates: AstNodeDescription[] = [];
+        
+        for (const doc of (langDocs as any).all ?? []) {
+          const root = (doc as any).parseResult?.value as Ontology | undefined;
+          if (root) {
+            const statements = (root as any).ownedStatements || (root as any).ownedMembers || [];
+            for (const member of statements) {
+              if (member && isMember(member) && member.name) {
+                // Only include entities that could be super-types
+                if (member.$type === 'Aspect' || member.$type === 'Concept' || 
+                    member.$type === 'RelationEntity') {
+                  try {
+                    // Create a description manually using the member's name
+                    const name = this.nameProvider.getName(member) || member.name;
+                    if (name) {
+                      // Use a simple approach: create descriptions with the workspace node locator
+                      const desc: AstNodeDescription = {
+                        name,
+                        type: member.$type,
+                        documentUri: doc.uri,
+                        path: (this.nameProvider as any).nodePath?.(member) || ''
+                      };
+                      workspaceCandidates.push(desc);
+                    }
+                  } catch {
+                    // Ignore errors
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        return stream([...scopedCandidates, ...workspaceCandidates]);
+      }
+    } catch {
+      // If anything fails, just return scoped candidates
+    }
+    
+    return scopedCandidates;
   }
 
   /**

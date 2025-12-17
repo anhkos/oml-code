@@ -13,18 +13,18 @@ import { isVocabulary, isDescription, isVocabularyBundle, isDescriptionBundle } 
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the ontology where the import will be added'),
-    importKind: z.enum(['extends', 'uses', 'includes']).describe('Type of import statement'),
+    importKind: z.enum(['extends']).describe('Type of import statement'),
     targetOntologyPath: z.string().describe('File path to the ontology being imported'),
 };
 
 export const addImportTool = {
     name: 'add_import' as const,
-    description: 'Adds an import statement (extends/uses/includes) to a vocabulary or description. Validates that the target ontology exists and uses its actual prefix.',
+    description: 'Adds an extends import statement to a vocabulary or description. Validates that the target ontology exists and uses its actual prefix.',
     paramsSchema,
 };
 
 export const addImportHandler = async (
-    { ontology, importKind, targetOntologyPath }: { ontology: string; importKind: 'extends' | 'uses' | 'includes'; targetOntologyPath: string }
+    { ontology, importKind, targetOntologyPath }: { ontology: string; importKind: 'extends'; targetOntologyPath: string }
 ) => {
     try {
         // Load source ontology
@@ -47,32 +47,6 @@ export const addImportHandler = async (
             return {
                 isError: true,
                 content: [{ type: 'text' as const, text: 'Source must be a vocabulary, description, vocabulary bundle, or description bundle' }],
-            };
-        }
-
-        // Validate import kind based on ontology type
-        if (isVocabulary(sourceRoot) && importKind !== 'extends' && importKind !== 'uses') {
-            return {
-                isError: true,
-                content: [{ type: 'text' as const, text: 'Vocabularies can only use "extends" or "uses" imports' }],
-            };
-        }
-        if (isVocabularyBundle(sourceRoot) && importKind !== 'extends' && importKind !== 'includes') {
-            return {
-                isError: true,
-                content: [{ type: 'text' as const, text: 'Vocabulary bundles can only use "extends" or "includes" imports' }],
-            };
-        }
-        if (isDescription(sourceRoot) && importKind !== 'extends' && importKind !== 'uses') {
-            return {
-                isError: true,
-                content: [{ type: 'text' as const, text: 'Descriptions can only use "extends" or "uses" imports' }],
-            };
-        }
-        if (isDescriptionBundle(sourceRoot) && importKind !== 'extends' && importKind !== 'includes') {
-            return {
-                isError: true,
-                content: [{ type: 'text' as const, text: 'Description bundles can only use "extends" or "includes" imports' }],
             };
         }
 

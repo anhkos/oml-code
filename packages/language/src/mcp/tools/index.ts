@@ -9,9 +9,12 @@ import { pendingTools } from './stubs/pending-tools.js';
 import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-imports.js';
 import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
 import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './methodology/smart-create-vocabulary.js';
+import { suggestSuperConceptsTool } from './query/index.js';
+import { suggestSuperConcepts } from './query/suggest-super-concepts.js';
 
 const coreTools: ToolRegistration[] = [
     { tool: validateOmlTool, handler: validateOmlHandler },
+    { tool: suggestSuperConceptsTool, handler: suggestSuperConcepts },
     ...termTools,
     ...axiomTools,
     ...instanceTools,
@@ -36,6 +39,7 @@ function pickTools(names: string[]): ToolRegistration[] {
 
 export const phase1Tools: ToolRegistration[] = pickTools([
     'validate_oml',
+    'suggest_super_concepts',
     'create_aspect',
     'create_concept',
     'create_relation_entity',

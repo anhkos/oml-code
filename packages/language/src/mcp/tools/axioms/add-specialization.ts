@@ -1,15 +1,17 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, detectIndentation } from '../common.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
     term: z.string().describe('Term to specialize'),
     superTerms: z.array(z.string()).nonempty().describe('Super terms to add'),
+    suggestionIndex: z.number().optional().describe('[RECOMMENDED] Index from suggest_super_concepts output (1-based). Helps ensure correct choice.'),
+    importStatement: z.string().optional().describe('[Optional] Import statement to add if required (from suggest_super_concepts additionalTextEdits)'),
 };
 
 export const addSpecializationTool = {
     name: 'add_specialization' as const,
-    description: 'Adds one or more super terms to a term’s specialization clause.',
+    description: 'Adds super terms to a term\'s specialization clause. MUST be called AFTER suggest_super_concepts and ONLY with concepts that exist in that suggestion list. The suggestionIndex parameter MUST reference the user\'s chosen option. DO NOT call this with newly created concepts - only use existing ones from suggestions. If the chosen suggestion includes an importStatement, pass it so the tool can add the needed import automatically.',
     paramsSchema,
 };
 
@@ -29,8 +31,24 @@ function extractSpecialization(termText: string) {
     return { exists: true, start: idx, end, items } as const;
 }
 
-export const addSpecializationHandler = async ({ ontology, term, superTerms }: { ontology: string; term: string; superTerms: string[] }) => {
+export const addSpecializationHandler = async ({ ontology, term, superTerms, suggestionIndex, importStatement }: { ontology: string; term: string; superTerms: string[]; suggestionIndex?: number; importStatement?: string }) => {
     try {
+        // Warn if called without suggestionIndex (implies suggest_super_concepts wasn't called)
+        if (suggestionIndex === undefined) {
+            console.warn(
+                `[add_specialization] WARNING: suggestionIndex not provided! ` +
+                `This indicates suggest_super_concepts was not called first, or the workflow was bypassed. ` +
+                `Concepts may have been created instead of using existing workspace concepts.`
+            );
+            // Return an error to block the operation
+            return {
+                isError: true,
+                content: [
+                    { type: 'text' as const, text: `⚠️ Error: suggestionIndex is required. You must call suggest_super_concepts first and get user confirmation before adding specialization. Do not create new concepts - only use existing ones from suggestions.` },
+                ],
+            };
+        }
+        const needsImport = importStatement && importStatement.trim().length > 0;
         const { vocabulary, filePath, fileUri, text } = await loadVocabularyDocument(ontology);
         const node = findTerm(vocabulary, term);
 
@@ -76,7 +94,51 @@ export const addSpecializationHandler = async ({ ontology, term, superTerms }: {
             }
         }
 
-        const newContent = text.slice(0, node.$cstNode.offset) + updatedTermText + text.slice(node.$cstNode.end);
+        let newContent = text.slice(0, node.$cstNode.offset) + updatedTermText + text.slice(node.$cstNode.end);
+
+        // If an import statement was provided from the suggestion, add it if missing
+        if (needsImport) {
+            const trimmedImport = importStatement!.trim();
+            if (!newContent.includes(trimmedImport)) {
+                const eol = newContent.includes('\r\n') ? '\r\n' : '\n';
+                const indent = detectIndentation(newContent);
+                const lines = newContent.split(/\r?\n/);
+
+                // Find insertion point: after opening brace and any existing imports
+                let insertLineIndex = -1;
+                let inOntology = false;
+                for (let i = 0; i < lines.length; i++) {
+                    const trimmed = lines[i].trim();
+                    if (trimmed.includes('vocabulary') || trimmed.includes('description') || trimmed.includes('bundle')) {
+                        inOntology = true;
+                    }
+                    if (inOntology && trimmed.includes('{')) {
+                        insertLineIndex = i + 1;
+                        let j = insertLineIndex;
+                        while (j < lines.length) {
+                            const nextTrimmed = lines[j].trim();
+                            if (nextTrimmed.startsWith('extends') || nextTrimmed.startsWith('uses') || nextTrimmed.startsWith('includes')) {
+                                insertLineIndex = j + 1;
+                                j++;
+                            } else if (nextTrimmed === '') {
+                                j++;
+                            } else {
+                                break;
+                            }
+                        }
+                        insertLineIndex = j;
+                        break;
+                    }
+                }
+
+                if (insertLineIndex >= 0) {
+                    const formattedImport = `${indent}${trimmedImport}`;
+                    lines.splice(insertLineIndex, 0, formattedImport);
+                    newContent = lines.join(eol);
+                }
+            }
+        }
+
         await writeFileAndNotify(filePath, fileUri, newContent);
 
         return {
