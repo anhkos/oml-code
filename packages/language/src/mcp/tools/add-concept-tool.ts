@@ -105,8 +105,7 @@ export const addConceptHandler = async (
                         missingConcepts.push(superConcept);
                     }
                 }
-                // For qualified names (prefix:Name) or IRIs (<...>), assume they're valid
-                // The LSP will validate them after the file is written
+
             }
 
             if (missingConcepts.length > 0) {

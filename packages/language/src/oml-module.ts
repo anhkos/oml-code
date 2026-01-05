@@ -1,11 +1,12 @@
 import { type Module, inject } from 'langium';
-import { createDefaultModule, createDefaultSharedModule, type DefaultSharedModuleContext, type LangiumServices, type LangiumSharedServices, type PartialLangiumServices } from 'langium/lsp';
+import { createDefaultModule, createDefaultSharedModule, type DefaultSharedModuleContext, type LangiumServices, type LangiumSharedServices, type PartialLangiumServices, type PartialLangiumSharedServices } from 'langium/lsp';
 import { OmlGeneratedModule, OmlGeneratedSharedModule } from './generated/module.js';
 import { OmlValidator, registerValidationChecks } from './oml-validator.js';
 import { OmlValueConverter } from './oml-converter.js';
 import { OmlScopeProvider } from './oml-scope.js';
 import { OmlCompletionProvider } from './oml-completion.js';
 import { OmlHoverProvider } from './oml-hover.js';
+import { OmlNodeKindProvider } from './oml-node-kind-provider.js';
 
 /**
  * Declaration of custom services - add your own service classes here.
@@ -44,6 +45,16 @@ export const OmlModule: Module<OmlServices, PartialLangiumServices & OmlAddedSer
 };
 
 /**
+ * Shared module that overrides default shared services.
+ * NodeKindProvider is a shared service used by DocumentSymbolProvider and WorkspaceSymbolProvider.
+ */
+export const OmlSharedModule: Module<LangiumSharedServices, PartialLangiumSharedServices> = {
+    lsp: {
+        NodeKindProvider: () => new OmlNodeKindProvider()
+    }
+};
+
+/**
  * Create the full set of services required by Langium.
  *
  * First inject the shared services by merging two modules:
@@ -64,7 +75,8 @@ export function createOmlServices(context: DefaultSharedModuleContext): {
 } {
     const shared = inject(
         createDefaultSharedModule(context),
-        OmlGeneratedSharedModule
+        OmlGeneratedSharedModule,
+        OmlSharedModule
     );
     const Oml = inject(
         createDefaultModule({ shared }),

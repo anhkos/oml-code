@@ -159,6 +159,24 @@ export function findTerm(vocabulary: Vocabulary, name: string): AnyTerm | undefi
     return vocabulary.ownedStatements.find((stmt) => isTerm(stmt) && (stmt as AnyTerm).name === name) as AnyTerm | undefined;
 }
 
+export function collectImportPrefixes(text: string, localPrefix?: string): Set<string> {
+    const prefixes = new Set<string>();
+    const lines = text.split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^(extends|uses|includes)\b/.test(trimmed)) {
+            const match = trimmed.match(/\bas\s+([^\s{]+)/);
+            if (match) {
+                prefixes.add(match[1]);
+            }
+        }
+    }
+    if (localPrefix) {
+        prefixes.add(localPrefix);
+    }
+    return prefixes;
+}
+
 export async function writeFileAndNotify(filePath: string, fileUri: string, newContent: string) {
     fs.writeFileSync(filePath, newContent, 'utf-8');
 

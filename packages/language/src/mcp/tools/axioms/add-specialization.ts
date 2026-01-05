@@ -1,17 +1,16 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm, detectIndentation } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, detectIndentation, collectImportPrefixes } from '../common.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
     term: z.string().describe('Term to specialize'),
-    superTerms: z.array(z.string()).nonempty().describe('Super terms to add'),
-    suggestionIndex: z.number().optional().describe('[RECOMMENDED] Index from suggest_super_concepts output (1-based). Helps ensure correct choice.'),
-    importStatement: z.string().optional().describe('[Optional] Import statement to add if required (from suggest_super_concepts additionalTextEdits)'),
+    superTerms: z.array(z.string()).nonempty().describe('Super terms to add (use qualified names like prefix:Name for imported terms)'),
+    importStatement: z.string().optional().describe('[Optional] Import statement to add if the super term requires a new import'),
 };
 
 export const addSpecializationTool = {
     name: 'add_specialization' as const,
-    description: 'Adds super terms to a term\'s specialization clause. MUST be called AFTER suggest_super_concepts and ONLY with concepts that exist in that suggestion list. The suggestionIndex parameter MUST reference the user\'s chosen option. DO NOT call this with newly created concepts - only use existing ones from suggestions. If the chosen suggestion includes an importStatement, pass it so the tool can add the needed import automatically.',
+    description: 'Adds super terms to a term\'s specialization clause. Use suggest_oml_symbols with symbolType="entity" to find available concepts/aspects first. Pass qualified names (prefix:Name) for terms from other ontologies.',
     paramsSchema,
 };
 
@@ -31,23 +30,8 @@ function extractSpecialization(termText: string) {
     return { exists: true, start: idx, end, items } as const;
 }
 
-export const addSpecializationHandler = async ({ ontology, term, superTerms, suggestionIndex, importStatement }: { ontology: string; term: string; superTerms: string[]; suggestionIndex?: number; importStatement?: string }) => {
+export const addSpecializationHandler = async ({ ontology, term, superTerms, importStatement }: { ontology: string; term: string; superTerms: string[]; importStatement?: string }) => {
     try {
-        // Warn if called without suggestionIndex (implies suggest_super_concepts wasn't called)
-        if (suggestionIndex === undefined) {
-            console.warn(
-                `[add_specialization] WARNING: suggestionIndex not provided! ` +
-                `This indicates suggest_super_concepts was not called first, or the workflow was bypassed. ` +
-                `Concepts may have been created instead of using existing workspace concepts.`
-            );
-            // Return an error to block the operation
-            return {
-                isError: true,
-                content: [
-                    { type: 'text' as const, text: `⚠️ Error: suggestionIndex is required. You must call suggest_super_concepts first and get user confirmation before adding specialization. Do not create new concepts - only use existing ones from suggestions.` },
-                ],
-            };
-        }
         const needsImport = importStatement && importStatement.trim().length > 0;
         const { vocabulary, filePath, fileUri, text } = await loadVocabularyDocument(ontology);
         const node = findTerm(vocabulary, term);
@@ -57,6 +41,33 @@ export const addSpecializationHandler = async ({ ontology, term, superTerms, sug
                 isError: true,
                 content: [
                     { type: 'text' as const, text: `Term "${term}" was not found in the vocabulary.` },
+                ],
+            };
+        }
+
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const importPrefix = needsImport ? importStatement?.match(/\bas\s+([^\s{]+)/)?.[1] : undefined;
+        const missing: string[] = [];
+
+        for (const st of superTerms) {
+            if (st.includes(':')) {
+                const prefix = st.split(':')[0];
+                if (!importPrefixes.has(prefix) && importPrefix !== prefix) {
+                    missing.push(`Super term "${st}" requires an import for prefix "${prefix}". Provide importStatement or add an import first.`);
+                }
+            } else {
+                const local = findTerm(vocabulary, st);
+                if (!local) {
+                    missing.push(`Super term "${st}" not found locally. Qualify it or create it first.`);
+                }
+            }
+        }
+
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [
+                    { type: 'text' as const, text: missing.join('\n') },
                 ],
             };
         }

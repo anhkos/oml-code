@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, collectImportPrefixes } from '../common.js';
+import { isScalarProperty, isUnreifiedRelation } from '../../../generated/ast.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the target vocabulary'),
@@ -31,6 +32,53 @@ export const updateRestrictionHandler = async (
             return {
                 isError: true,
                 content: [{ type: 'text' as const, text: `Term "${termName}" not found in vocabulary.` }],
+            };
+        }
+
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing: string[] = [];
+
+        const ensureLocalProperty = (name: string) => {
+            const propNode = findTerm(vocabulary, name);
+            if (!propNode) {
+                missing.push(`Property "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isScalarProperty(propNode) && !isUnreifiedRelation(propNode)) {
+                missing.push(`"${name}" is not a property (scalar property or unreified relation).`);
+            }
+        };
+
+        const ensureLocalType = (name: string, label: string) => {
+            const typeNode = findTerm(vocabulary, name);
+            if (!typeNode) {
+                missing.push(`${label} "${name}" not found locally. Qualify it or add an import.`);
+            }
+        };
+
+        const ensureImported = (prefixed: string, label: string) => {
+            const prefix = prefixed.split(':')[0];
+            if (!importPrefixes.has(prefix)) {
+                missing.push(`${label} "${prefixed}" requires an import for prefix "${prefix}".`);
+            }
+        };
+
+        if (property.includes(':')) {
+            ensureImported(property, 'Property');
+        } else {
+            ensureLocalProperty(property);
+        }
+
+        if (range) {
+            if (range.includes(':')) {
+                ensureImported(range, 'Range');
+            } else {
+                ensureLocalType(range, 'Range');
+            }
+        }
+
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: missing.join('\n') }],
             };
         }
 

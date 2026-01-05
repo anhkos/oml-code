@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm, LiteralParam, formatLiteral } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, LiteralParam, formatLiteral, collectImportPrefixes } from '../common.js';
 import { literalParamSchema } from '../schemas.js';
-import { isAspect, isConcept, isRelationEntity } from '../../../generated/ast.js';
+import { isAspect, isConcept, isRelationEntity, isScalarProperty, isUnreifiedRelation } from '../../../generated/ast.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
@@ -96,6 +96,61 @@ export const addRestrictionHandler = async (params: {
             return {
                 isError: true,
                 content: [{ type: 'text' as const, text: `"${entity}" is not an entity (aspect, concept, or relation entity).` }],
+            };
+        }
+
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing: string[] = [];
+
+        const ensureLocalProperty = (name: string) => {
+            const propNode = findTerm(vocabulary, name);
+            if (!propNode) {
+                missing.push(`Property "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isScalarProperty(propNode) && !isUnreifiedRelation(propNode)) {
+                missing.push(`"${name}" is not a property (scalar property or unreified relation).`);
+            }
+        };
+
+        const ensureLocalType = (name: string, label: string) => {
+            const typeNode = findTerm(vocabulary, name);
+            if (!typeNode) {
+                missing.push(`${label} "${name}" not found locally. Qualify it or add an import.`);
+            }
+        };
+
+        const ensureImported = (prefixed: string, label: string) => {
+            const prefix = prefixed.split(':')[0];
+            if (!importPrefixes.has(prefix)) {
+                missing.push(`${label} "${prefixed}" requires an import for prefix "${prefix}".`);
+            }
+        };
+
+        if (params.property.includes(':')) {
+            ensureImported(params.property, 'Property');
+        } else {
+            ensureLocalProperty(params.property);
+        }
+
+        if (params.rangeType) {
+            if (params.rangeType.includes(':')) {
+                ensureImported(params.rangeType, 'Range type');
+            } else {
+                ensureLocalType(params.rangeType, 'Range type');
+            }
+        }
+
+        if (params.cardinalityRangeType) {
+            if (params.cardinalityRangeType.includes(':')) {
+                ensureImported(params.cardinalityRangeType, 'Cardinality range type');
+            } else {
+                ensureLocalType(params.cardinalityRangeType, 'Cardinality range type');
+            }
+        }
+
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: missing.join('\n') }],
             };
         }
 

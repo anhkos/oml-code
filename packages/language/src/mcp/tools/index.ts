@@ -9,12 +9,15 @@ import { pendingTools } from './stubs/pending-tools.js';
 import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-imports.js';
 import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
 import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './methodology/smart-create-vocabulary.js';
-import { suggestSuperConceptsTool } from './query/index.js';
-import { suggestSuperConcepts } from './query/suggest-super-concepts.js';
+import { suggestOmlSymbolsTool, smartAddOmlElementTool } from './query/index.js';
+import { suggestOmlSymbolsHandler } from './query/suggest-oml-symbols.js';
+import { smartAddOmlElementHandler } from './query/smart-add-oml-element.js';
+import { preferencesTools } from './preferences/index.js';
 
 const coreTools: ToolRegistration[] = [
     { tool: validateOmlTool, handler: validateOmlHandler },
-    { tool: suggestSuperConceptsTool, handler: suggestSuperConcepts },
+    { tool: suggestOmlSymbolsTool, handler: suggestOmlSymbolsHandler },
+    { tool: smartAddOmlElementTool, handler: smartAddOmlElementHandler },
     ...termTools,
     ...axiomTools,
     ...instanceTools,
@@ -23,6 +26,7 @@ const coreTools: ToolRegistration[] = [
     { tool: ensureImportsTool, handler: ensureImportsHandler },
     { tool: addToBundleTool, handler: addToBundleHandler },
     { tool: smartCreateVocabularyTool, handler: smartCreateVocabularyHandler },
+    ...preferencesTools,
 ];
 
 const coreToolsByName = new Map(coreTools.map((t) => [t.tool.name, t]));
@@ -39,7 +43,6 @@ function pickTools(names: string[]): ToolRegistration[] {
 
 export const phase1Tools: ToolRegistration[] = pickTools([
     'validate_oml',
-    'suggest_super_concepts',
     'create_aspect',
     'create_concept',
     'create_relation_entity',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AnnotationParam, loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { AnnotationParam, loadVocabularyDocument, writeFileAndNotify, findTerm, collectImportPrefixes } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { isAspect, isConcept, isRelationEntity, isScalar, isScalarProperty, isUnreifiedRelation } from '../../../generated/ast.js';
 
@@ -82,8 +82,42 @@ export const addEquivalenceHandler = async (params: {
             };
         }
 
-        const termText = text.slice(node.$cstNode.offset, node.$cstNode.end);
-        let equivalenceClause = '';
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing: string[] = [];
+
+        const ensureLocalEntity = (name: string) => {
+            const target = findTerm(vocabulary, name);
+            if (!target) {
+                missing.push(`Super entity "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isAspect(target) && !isConcept(target) && !isRelationEntity(target)) {
+                missing.push(`Super entity "${name}" is not an aspect, concept, or relation entity.`);
+            }
+        };
+
+        const ensureLocalScalar = (name: string) => {
+            const target = findTerm(vocabulary, name);
+            if (!target) {
+                missing.push(`Super scalar "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isScalar(target)) {
+                missing.push(`Super scalar "${name}" is not a scalar.`);
+            }
+        };
+
+        const ensureLocalProperty = (name: string) => {
+            const target = findTerm(vocabulary, name);
+            if (!target) {
+                missing.push(`Super property "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isScalarProperty(target) && !isUnreifiedRelation(target)) {
+                missing.push(`Super property "${name}" is not a property (scalar property or unreified relation).`);
+            }
+        };
+
+        const ensureImported = (prefixed: string) => {
+            const prefix = prefixed.split(':')[0];
+            if (!importPrefixes.has(prefix)) {
+                missing.push(`Prefix "${prefix}" for "${prefixed}" is not imported. Add an import first.`);
+            }
+        };
 
         if (equivalenceType === 'entity') {
             if (!superEntities || superEntities.length === 0) {
@@ -92,7 +126,13 @@ export const addEquivalenceHandler = async (params: {
                     content: [{ type: 'text' as const, text: `superEntities is required for entity equivalence.` }],
                 };
             }
-            equivalenceClause = `= ${superEntities.join(' & ')}`;
+            for (const se of superEntities) {
+                if (se.includes(':')) {
+                    ensureImported(se);
+                } else {
+                    ensureLocalEntity(se);
+                }
+            }
         } else if (equivalenceType === 'scalar') {
             if (!superScalar) {
                 return {
@@ -100,7 +140,38 @@ export const addEquivalenceHandler = async (params: {
                     content: [{ type: 'text' as const, text: `superScalar is required for scalar equivalence.` }],
                 };
             }
+            if (superScalar.includes(':')) {
+                ensureImported(superScalar);
+            } else {
+                ensureLocalScalar(superScalar);
+            }
+        } else if (equivalenceType === 'property') {
+            if (!superProperty) {
+                return {
+                    isError: true,
+                    content: [{ type: 'text' as const, text: `superProperty is required for property equivalence.` }],
+                };
+            }
+            if (superProperty.includes(':')) {
+                ensureImported(superProperty);
+            } else {
+                ensureLocalProperty(superProperty);
+            }
+        }
 
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: missing.join('\n') }],
+            };
+        }
+
+        const termText = text.slice(node.$cstNode.offset, node.$cstNode.end);
+        let equivalenceClause = '';
+
+        if (equivalenceType === 'entity') {
+            equivalenceClause = `= ${superEntities!.join(' & ')}`;
+        } else if (equivalenceType === 'scalar') {
             let constraints = '';
             const innerIndent = indent + indent;
             if (params.length !== undefined) constraints += `${innerIndent}length ${params.length}${eol}`;
@@ -119,12 +190,6 @@ export const addEquivalenceHandler = async (params: {
                 equivalenceClause = `= ${superScalar}`;
             }
         } else if (equivalenceType === 'property') {
-            if (!superProperty) {
-                return {
-                    isError: true,
-                    content: [{ type: 'text' as const, text: `superProperty is required for property equivalence.` }],
-                };
-            }
             equivalenceClause = `= ${superProperty}`;
         }
 

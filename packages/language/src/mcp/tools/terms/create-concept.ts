@@ -29,6 +29,19 @@ export const createConceptHandler = async (
     { ontology, name, keys, instanceEnumeration, superTerms, annotations }: { ontology: string; name: string; keys?: string[][]; instanceEnumeration?: string[]; superTerms?: string[]; annotations?: AnnotationParam[] }
 ) => {
     try {
+        // Ensure concept name starts with capital letter
+        if (!/^[A-Z]/.test(name)) {
+            return {
+                isError: true,
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Concept name "${name}" must start with a capital letter. OML convention requires concept names to begin with an uppercase character.`,
+                    },
+                ],
+            };
+        }
+
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
         if (findTerm(vocabulary, name)) {

@@ -31,9 +31,13 @@ export class OmlLspBridge {
             connection.onRequest(async (method, params) => {
                 try {
                     // Handle textDocument/diagnostic specially using VS Code API
-                    // TODO: Extend this to other requests as needed
                     if (method === 'textDocument/diagnostic') {
                         return await this.handleDiagnosticRequest(params);
+                    }
+                    
+                    // Handle oml/workspaceFiles to return all OML files in workspace
+                    if (method === 'oml/workspaceFiles') {
+                        return await this.handleWorkspaceFilesRequest();
                     }
                     
                     const result = await this.client.sendRequest(method, params);
@@ -143,6 +147,28 @@ export class OmlLspBridge {
                 return 4;
             default:
                 return 1;
+        }
+    }
+
+    /**
+     * Handle oml/workspaceFiles request - returns all OML files in the workspace
+     */
+    private async handleWorkspaceFilesRequest(): Promise<{ uri: string }[]> {
+        try {
+            console.log('[OML LSP Bridge] Workspace files request');
+            
+            // Find all .oml files in the workspace
+            const files = await vscode.workspace.findFiles('**/*.oml', '**/node_modules/**');
+            
+            const result = files.map(file => ({
+                uri: file.toString()
+            }));
+            
+            console.log(`[OML LSP Bridge] Found ${result.length} .oml files`);
+            return result;
+        } catch (error) {
+            console.error('[OML LSP Bridge] Error getting workspace files:', error);
+            return [];
         }
     }
 }

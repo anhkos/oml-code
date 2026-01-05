@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, collectImportPrefixes } from '../common.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the target vocabulary'),
@@ -24,6 +24,30 @@ export const updateEquivalenceHandler = async (
             return {
                 isError: true,
                 content: [{ type: 'text' as const, text: `Term "${termName}" not found in vocabulary.` }],
+            };
+        }
+
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing: string[] = [];
+
+        for (const eq of equivalentTerms) {
+            if (eq.includes(':')) {
+                const prefix = eq.split(':')[0];
+                if (!importPrefixes.has(prefix)) {
+                    missing.push(`Equivalent term "${eq}" requires an import for prefix "${prefix}".`);
+                }
+            } else {
+                const target = findTerm(vocabulary, eq);
+                if (!target) {
+                    missing.push(`Equivalent term "${eq}" not found locally. Qualify it or add an import.`);
+                }
+            }
+        }
+
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: missing.join('\n') }],
             };
         }
 

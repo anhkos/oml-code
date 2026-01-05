@@ -4,6 +4,7 @@ export * from './oml-converter.js';
 export * from './oml-scope.js';
 export * from './oml-completion.js';
 export * from './oml-hover.js';
+export * from './oml-node-kind-provider.js';
 export * from './oml-diagram.js';
 export * from './generated/ast.js';
 export * from './generated/grammar.js';

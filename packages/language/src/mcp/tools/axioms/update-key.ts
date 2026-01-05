@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, collectImportPrefixes } from '../common.js';
+import { isScalarProperty, isUnreifiedRelation } from '../../../generated/ast.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the target vocabulary'),
@@ -24,6 +25,42 @@ export const updateKeyHandler = async (
             return {
                 isError: true,
                 content: [{ type: 'text' as const, text: `Term "${termName}" not found in vocabulary.` }],
+            };
+        }
+
+        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing: string[] = [];
+
+        const ensureLocalProperty = (name: string) => {
+            const propNode = findTerm(vocabulary, name);
+            if (!propNode) {
+                missing.push(`Key property "${name}" not found locally. Qualify it or add an import.`);
+            } else if (!isScalarProperty(propNode) && !isUnreifiedRelation(propNode)) {
+                missing.push(`"${name}" is not a property (scalar property or unreified relation).`);
+            }
+        };
+
+        const ensureImported = (prefixed: string) => {
+            const prefix = prefixed.split(':')[0];
+            if (!importPrefixes.has(prefix)) {
+                missing.push(`Key property "${prefixed}" requires an import for prefix "${prefix}".`);
+            }
+        };
+
+        for (const group of keys) {
+            for (const prop of group) {
+                if (prop.includes(':')) {
+                    ensureImported(prop);
+                } else {
+                    ensureLocalProperty(prop);
+                }
+            }
+        }
+
+        if (missing.length) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: missing.join('\n') }],
             };
         }
 
