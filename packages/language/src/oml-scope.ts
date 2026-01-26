@@ -257,6 +257,13 @@ export class OmlScopeProvider extends DefaultScopeProvider {
                 members.push((m as any).reverseRelation);
               }
             }
+
+            // If it's an UnreifiedRelation, index its reverse relation as well
+            if (m.$type === 'UnreifiedRelation') {
+              if ((m as any).reverseRelation?.name) {
+                members.push((m as any).reverseRelation);
+              }
+            }
           }
         }
 

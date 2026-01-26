@@ -14,6 +14,30 @@ const WELL_KNOWN_IMPORTS: Record<string, { iri: string }> = {
     xsd: { iri: 'http://www.w3.org/2001/XMLSchema#' },
 };
 
+// OML reserved keywords that must be escaped with ^ when used as prefixes
+const RESERVED_KEYWORDS = new Set([
+    'vocabulary', 'bundle', 'description',
+    'extends', 'uses', 'includes',
+    'aspect', 'concept', 'relation', 'entity', 'scalar',
+    'instance', 'property', 'annotation',
+    'rule', 'builtin',
+    'forward', 'reverse',
+    'from', 'to',
+    'functional', 'inverse', 'symmetric', 'asymmetric', 'reflexive', 'irreflexive', 'transitive',
+    'restricts', 'all', 'some', 'exactly', 'min', 'max',
+    'key', 'oneOf',
+    'ref', 'self',
+    'sameAs', 'differentFrom',
+    'true', 'false',
+]);
+
+/**
+ * Escape a prefix if it's a reserved keyword
+ */
+function escapePrefix(prefix: string): string {
+    return RESERVED_KEYWORDS.has(prefix) ? `^${prefix}` : prefix;
+}
+
 export const ensureImportsTool = {
     name: 'ensure_imports' as const,
     description: 'Ensures required imports exist based on actually used prefixes in the file. Automatically discovers workspace vocabularies by their prefix and adds appropriate imports. Works for both vocabularies (uses "extends") and descriptions (uses "uses"). Handles well-known prefixes (dc, xsd) and any prefix defined in the workspace.',
@@ -155,34 +179,95 @@ async function buildWorkspacePrefixMap(): Promise<Map<string, string>> {
     return prefixMap;
 }
 
+/**
+ * Build a map of symbol name -> namespace IRI from workspace vocabularies
+ * This allows resolving symbols even when using custom prefix aliases
+ */
+async function buildSymbolToNamespaceMap(): Promise<Map<string, string>> {
+    const symbolMap = new Map<string, string>();
+    
+    let omlFileUris = await queryWorkspaceFiles();
+    if (!omlFileUris) {
+        omlFileUris = scanWorkspaceForOmlFiles(getWorkspaceRoot());
+    }
+    
+    const services = createOmlServices(NodeFileSystem);
+    
+    for (const omlFileUri of omlFileUris) {
+        try {
+            const omlDoc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(omlFileUri));
+            await services.shared.workspace.DocumentBuilder.build([omlDoc], { validation: false });
+            
+            const root = omlDoc.parseResult.value;
+            if (isVocabulary(root) || isDescription(root) || isVocabularyBundle(root) || isDescriptionBundle(root)) {
+                const namespace = root.namespace.replace(/^<|>$/g, '');
+                
+                // Extract all named statements (concepts, aspects, relations, properties, instances)
+                const statements = (root as any).ownedStatements || [];
+                for (const stmt of statements) {
+                    if (stmt && stmt.name) {
+                        // Map symbol name to its vocabulary's namespace
+                        // Note: if same symbol exists in multiple vocabs, last one wins
+                        // This is acceptable since we use this as a fallback
+                        symbolMap.set(stmt.name, namespace);
+                        
+                        // Also index forward/reverse relations from RelationEntity
+                        if (stmt.$type === 'RelationEntity') {
+                            if (stmt.forwardRelation?.name) {
+                                symbolMap.set(stmt.forwardRelation.name, namespace);
+                            }
+                            if (stmt.reverseRelation?.name) {
+                                symbolMap.set(stmt.reverseRelation.name, namespace);
+                            }
+                        }
+                        // And from UnreifiedRelation
+                        if (stmt.$type === 'UnreifiedRelation') {
+                            if (stmt.reverseRelation?.name) {
+                                symbolMap.set(stmt.reverseRelation.name, namespace);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error(`[ensure_imports] Error building symbol map from ${omlFileUri}:`, err);
+        }
+    }
+    
+    return symbolMap;
+}
+
 export const ensureImportsHandler = async ({ ontology }: { ontology: string }) => {
     try {
         const { text, filePath, fileUri, eol, indent, root, importKeyword, ontologyType, prefix: localPrefix } = await loadAnyOntologyDocument(ontology);
 
-        // Detect used prefixes anywhere in the file: annotations like @dc:title and identifiers like xsd:string
-        const usedPrefixes = new Set<string>();
-        const anyPrefixRegex = /@?([A-Za-z][\w-]*):[A-Za-z][\w-]*/g;
+        // Detect used qualified names anywhere in the file: prefix:SymbolName
+        // We need both the prefix AND the symbol name to resolve custom aliases
+        const usedQualifiedNames: Array<{ prefix: string; symbolName: string }> = [];
+        const anyPrefixRegex = /@?([A-Za-z][\w-]*):([A-Za-z][\w-]*)/g;
         let m: RegExpExecArray | null;
         while ((m = anyPrefixRegex.exec(text)) !== null) {
             const prefix = m[1];
+            const symbolName = m[2];
             // Skip local prefix references
             if (prefix !== localPrefix && prefix !== localPrefix?.replace(/^\^/, '')) {
-                usedPrefixes.add(prefix);
+                usedQualifiedNames.push({ prefix, symbolName });
             }
         }
 
         // AST-driven hints: if scalar properties reference xsd types, ensure xsd prefix
         try {
             const anyXsdUse = hasXsdUsage(root);
-            if (anyXsdUse) usedPrefixes.add('xsd');
+            if (anyXsdUse) usedQualifiedNames.push({ prefix: 'xsd', symbolName: 'string' });
         } catch {}
 
-        if (usedPrefixes.size === 0) {
+        if (usedQualifiedNames.length === 0) {
             return { content: [{ type: 'text' as const, text: '✓ No external prefixes used, imports already satisfied' }] };
         }
 
-        // Build workspace prefix map for discovery
+        // Build workspace data: prefix -> namespace AND symbol -> namespace
         const workspacePrefixes = await buildWorkspacePrefixMap();
+        const symbolToNamespace = await buildSymbolToNamespaceMap();
         
         // Combine well-known and workspace prefixes
         const allKnownPrefixes = new Map<string, string>();
@@ -193,29 +278,49 @@ export const ensureImportsHandler = async ({ ontology }: { ontology: string }) =
             allKnownPrefixes.set(prefix, namespace);
         }
 
-        // Build missing import lines
-        const missingImportLines: string[] = [];
+        // Build missing import lines - deduplicate by prefix
+        const importsToAdd = new Map<string, string>(); // prefix -> namespace
         const unresolvedPrefixes: string[] = [];
         
-        for (const prefix of usedPrefixes) {
-            const namespace = allKnownPrefixes.get(prefix);
+        for (const { prefix, symbolName } of usedQualifiedNames) {
+            // Skip if we already have an import for this prefix
+            if (importsToAdd.has(prefix)) continue;
+            
+            // Check if import already exists by prefix
+            const prefixPattern = new RegExp(`(extends|includes|uses)\\s*<[^>]+>\\s*as\\s*\\^?${escapeRegex(prefix)}\\b`, 'i');
+            if (prefixPattern.test(text)) {
+                continue;
+            }
+            
+            // First, try to find by the prefix directly (exact match)
+            let namespace = allKnownPrefixes.get(prefix);
+            
+            // If not found by prefix, try to find by symbol name
+            if (!namespace) {
+                namespace = symbolToNamespace.get(symbolName);
+            }
             
             if (!namespace) {
-                unresolvedPrefixes.push(prefix);
+                if (!unresolvedPrefixes.includes(prefix)) {
+                    unresolvedPrefixes.push(prefix);
+                }
                 continue;
             }
             
-            // Check if import already exists by namespace or by prefix
+            // Check if this namespace is already imported (possibly with a different alias)
             const iriPattern = new RegExp(`(extends|includes|uses)\\s*<${escapeRegex(namespace)}>`, 'i');
-            const prefixPattern = new RegExp(`(extends|includes|uses)\\s*<[^>]+>\\s*as\\s*\\^?${escapeRegex(prefix)}\\b`, 'i');
-            
-            if (iriPattern.test(text) || prefixPattern.test(text)) {
-                console.error(`[ensure_imports] Import for ${prefix} already exists in ${ontologyType}, skipping`);
+            if (iriPattern.test(text)) {
                 continue;
             }
             
-            // Use the correct import keyword based on ontology type
-            missingImportLines.push(`${indent}${importKeyword} <${namespace}> as ${prefix}`);
+            importsToAdd.set(prefix, namespace);
+        }
+
+        // Generate import lines
+        const missingImportLines: string[] = [];
+        for (const [prefix, namespace] of importsToAdd) {
+            const escapedPrefix = escapePrefix(prefix);
+            missingImportLines.push(`${indent}${importKeyword} <${namespace}> as ${escapedPrefix}`);
         }
 
         if (missingImportLines.length === 0 && unresolvedPrefixes.length === 0) {

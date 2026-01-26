@@ -200,7 +200,7 @@ export async function loadVocabularyDocument(ontology: string) {
 
     const root = document.parseResult.value;
     if (!isVocabulary(root)) {
-        throw new Error('The target ontology is not a vocabulary. Only vocabularies are supported in Phase 1.');
+        throw new Error(`The target ontology "${filePath}" is not a vocabulary. Use loadAnyOntologyDocument() for descriptions or bundles.`);
     }
 
     const text = fs.readFileSync(filePath, 'utf-8');

@@ -160,9 +160,30 @@ export async function resolveSymbolName(
     contextFileUri: string,
     expectedTypes?: OmlSymbolType[]
 ): Promise<SymbolResolution> {
-    // If already qualified, return as-is (but validate it exists)
+    // If qualified, validate the symbol exists and return import info with the user's chosen prefix
     if (name.includes(':')) {
-        return { success: true, qualifiedName: name };
+        const [givenPrefix, symbolName] = name.split(':', 2);
+        
+        // Search workspace for the symbol to find which vocabulary it's in
+        const unqualifiedResult = await resolveSymbolName(symbolName, contextFileUri, expectedTypes);
+        
+        if (!unqualifiedResult.success) {
+            // Symbol doesn't exist at all
+            return {
+                success: false,
+                error: `Symbol "${symbolName}" not found in workspace. Check the name or use suggest_oml_symbols to discover available symbols.`,
+                suggestions: unqualifiedResult.suggestions,
+            };
+        }
+        
+        // Symbol found - return success with the user's chosen prefix, but the correct namespace for import
+        return {
+            success: true,
+            qualifiedName: name, // Keep user's prefix choice (e.g., ent:Actor)
+            prefix: givenPrefix, // User's chosen prefix
+            needsImport: unqualifiedResult.needsImport,
+            importNamespace: unqualifiedResult.importNamespace, // The actual namespace to import
+        };
     }
 
     try {

@@ -16,4 +16,7 @@ syntaxes/
 *.tsbuildinfo
 *.vsix
 
+# Local ideas/notes
+packages/language/src/mcp/IDEAS.md
+
 .DS_Store

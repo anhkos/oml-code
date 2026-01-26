@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral } from '../common.js';
+import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral, collectImportPrefixes } from '../common.js';
 import { annotationParamSchema, propertyValueParamSchema } from '../schemas.js';
 import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance, OntologyNotFoundError, WrongOntologyTypeError } from '../description-common.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('ABSOLUTE file path to the target description'),
@@ -73,7 +74,7 @@ export const updateInstanceHandler = async (params: {
     const { ontology, instance, newName, newTypes, newSources, newTargets, newPropertyValues, newAnnotations } = params;
 
     try {
-        const { description, filePath, fileUri, text, eol, indent } = await loadDescriptionDocument(ontology);
+        let { description, filePath, fileUri, text, eol, indent } = await loadDescriptionDocument(ontology);
         const node = findInstance(description, instance);
 
         if (!node || !node.$cstNode) {
@@ -83,17 +84,69 @@ export const updateInstanceHandler = async (params: {
             };
         }
 
-        const isRelationInstance = node.$type === 'RelationInstance';
+        // Collect prefixes referenced in newTypes, newPropertyValues, newAnnotations, newSources, newTargets
+        const referencedPrefixes = new Set<string>();
+        
+        const collectPrefix = (name: string) => {
+            if (name.includes(':')) {
+                referencedPrefixes.add(name.split(':')[0]);
+            }
+        };
+        
+        newTypes?.forEach(collectPrefix);
+        newSources?.forEach(collectPrefix);
+        newTargets?.forEach(collectPrefix);
+        newPropertyValues?.forEach(pv => {
+            collectPrefix(pv.property);
+            pv.referencedValues?.forEach(collectPrefix);
+        });
+        newAnnotations?.forEach(ann => {
+            collectPrefix(ann.property);
+            ann.referencedValues?.forEach(collectPrefix);
+        });
+
+        // Check which imports are missing and auto-add them
+        const existingPrefixes = collectImportPrefixes(text, description.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        if (missing.length > 0) {
+            // Automatically call ensure_imports to add the missing imports
+            const ensureResult = await ensureImportsHandler({ ontology });
+            
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            
+            // Reload the document to get the updated content with new imports
+            const reloaded = await loadDescriptionDocument(ontology);
+            description = reloaded.description;
+            filePath = reloaded.filePath;
+            fileUri = reloaded.fileUri;
+            text = reloaded.text;
+            eol = reloaded.eol;
+            indent = reloaded.indent;
+        }
+
+        // Re-find the instance node after potential reload (offsets may have changed)
+        const updatedNode = findInstance(description, instance);
+        if (!updatedNode || !updatedNode.$cstNode) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: `Instance "${instance}" was not found after import update.` }],
+            };
+        }
+
+        const isRelationInstance = updatedNode.$type === 'RelationInstance';
         
         // Detect the original indentation of this instance by looking at what precedes it
-        const textBeforeInstance = text.slice(0, node.$cstNode.offset);
+        const textBeforeInstance = text.slice(0, updatedNode.$cstNode.offset);
         const lastNewlineIndex = textBeforeInstance.lastIndexOf('\n');
         const lineStart = lastNewlineIndex >= 0 ? textBeforeInstance.slice(lastNewlineIndex + 1) : '';
         const originalIndent = lineStart.match(/^(\s*)/)?.[1] || '';
         const innerIndent = originalIndent + indent;
 
         // Parse existing instance
-        const oldText = text.slice(node.$cstNode.offset, node.$cstNode.end);
+        const oldText = text.slice(updatedNode.$cstNode.offset, updatedNode.$cstNode.end);
         const annotationsText = formatAnnotations(newAnnotations, originalIndent, eol);
 
         const instanceKeyword = isRelationInstance ? 'relation instance' : 'instance';
@@ -146,11 +199,19 @@ export const updateInstanceHandler = async (params: {
         const block = bodyText ? ` [${eol}${bodyText}${originalIndent}]` : '';
         const newInstanceText = `${annotationsText}${instanceKeyword} ${name}${typeClause}${block}`;
 
-        const newContent = text.slice(0, node.$cstNode.offset) + newInstanceText + text.slice(node.$cstNode.end);
+        const newContent = text.slice(0, updatedNode.$cstNode.offset) + newInstanceText + text.slice(updatedNode.$cstNode.end);
         await writeDescriptionAndNotify(filePath, fileUri, newContent);
 
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}`);
+        }
+
         return {
-            content: [{ type: 'text' as const, text: `✓ Updated instance "${instance}"${newName ? ` (renamed to "${newName}")` : ''}` }],
+            content: [
+                { type: 'text' as const, text: `✓ Updated instance "${instance}"${newName ? ` (renamed to "${newName}")` : ''}` },
+                ...(notes.length ? [{ type: 'text' as const, text: notes.join(' ') }] : []),
+            ],
         };
     } catch (error) {
         if (error instanceof OntologyNotFoundError) {

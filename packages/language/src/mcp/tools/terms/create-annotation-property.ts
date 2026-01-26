@@ -31,6 +31,32 @@ export const createAnnotationPropertyHandler = async (
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
+        // Disallow creating properties in another namespace or with prefixed names.
+        // This prevents accidentally re-defining imported properties like base:expression.
+        if (name.includes(':')) {
+            const vocabPrefix = (vocabulary as any).prefix as string | undefined;
+            const [givenPrefix] = name.split(':', 2);
+            if (!vocabPrefix || givenPrefix !== vocabPrefix) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: 'text' as const,
+                        text: `Refusing to create annotation property "${name}" because it is prefixed. ` +
+                              `Create properties only in this vocabulary's namespace (use an unprefixed name), ` +
+                              `or reuse the existing imported property instead.`
+                    }],
+                };
+            }
+            return {
+                isError: true,
+                content: [{
+                    type: 'text' as const,
+                    text: `Use an unprefixed name when defining properties in this vocabulary. ` +
+                          `Provided: "${name}". Local prefix is "${vocabPrefix}".`
+                }],
+            };
+        }
+
         // Validate all referenced prefixes are imported
         const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
         const allReferencedNames = annotations?.map(a => a.property) ?? [];
