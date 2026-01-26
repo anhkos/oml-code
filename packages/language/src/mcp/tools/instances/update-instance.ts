@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral } from '../common.js';
 import { annotationParamSchema, propertyValueParamSchema } from '../schemas.js';
-import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance } from '../description-common.js';
+import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance, OntologyNotFoundError, WrongOntologyTypeError } from '../description-common.js';
 
 const paramsSchema = {
-    ontology: z.string().describe('File path or file:// URI to the target description'),
+    ontology: z.string().describe('ABSOLUTE file path to the target description'),
     instance: z.string().describe('Instance name to update'),
     newName: z.string().optional().describe('New name for the instance'),
     newTypes: z.array(z.string()).optional().describe('Replacement type assertions'),
@@ -16,7 +16,17 @@ const paramsSchema = {
 
 export const updateInstanceTool = {
     name: 'update_instance' as const,
-    description: 'Updates an instance by replacing its name, types, sources/targets (for relation instances), property values, or annotations.',
+    description: `Updates an instance by replacing its name, types, sources/targets (for relation instances), property values, or annotations.
+
+KEY USES:
+1. ADD TYPES: To add a type to an existing instance, use newTypes with ALL desired types
+2. RENAME: Use newName to rename the instance
+3. CHANGE PROPERTIES: Use newPropertyValues to replace all property values
+
+Example - Add Actor type to existing Stakeholder instance:
+  update_instance(ontology="desc.oml", instance="MissionCommander", newTypes=["requirement:Stakeholder", "entity:Actor"])
+
+IMPORTANT: newTypes REPLACES all types - include ALL types you want the instance to have.`,
     paramsSchema,
 };
 
@@ -74,11 +84,17 @@ export const updateInstanceHandler = async (params: {
         }
 
         const isRelationInstance = node.$type === 'RelationInstance';
-        const innerIndent = indent + indent;
+        
+        // Detect the original indentation of this instance by looking at what precedes it
+        const textBeforeInstance = text.slice(0, node.$cstNode.offset);
+        const lastNewlineIndex = textBeforeInstance.lastIndexOf('\n');
+        const lineStart = lastNewlineIndex >= 0 ? textBeforeInstance.slice(lastNewlineIndex + 1) : '';
+        const originalIndent = lineStart.match(/^(\s*)/)?.[1] || '';
+        const innerIndent = originalIndent + indent;
 
         // Parse existing instance
         const oldText = text.slice(node.$cstNode.offset, node.$cstNode.end);
-        const annotationsText = formatAnnotations(newAnnotations, indent, eol);
+        const annotationsText = formatAnnotations(newAnnotations, originalIndent, eol);
 
         const instanceKeyword = isRelationInstance ? 'relation instance' : 'instance';
         const name = newName ?? instance;
@@ -115,9 +131,11 @@ export const updateInstanceHandler = async (params: {
             if (blockMatch) {
                 const blockContent = blockMatch[1];
                 // Extract lines that look like property values (not from/to)
+                // Re-indent each line properly with innerIndent
                 const propLines = blockContent.split(/\r?\n/)
-                    .filter(line => line.trim() && !line.trim().startsWith('from') && !line.trim().startsWith('to'))
-                    .map(line => line.trimEnd())
+                    .map(line => line.trim())
+                    .filter(line => line && !line.startsWith('from') && !line.startsWith('to'))
+                    .map(line => `${innerIndent}${line}`)
                     .join(eol);
                 if (propLines) {
                     bodyText += propLines + eol;
@@ -125,8 +143,8 @@ export const updateInstanceHandler = async (params: {
             }
         }
 
-        const block = bodyText ? ` [${eol}${bodyText}${indent}]` : '';
-        const newInstanceText = `${annotationsText}${indent}${instanceKeyword} ${name}${typeClause}${block}`;
+        const block = bodyText ? ` [${eol}${bodyText}${originalIndent}]` : '';
+        const newInstanceText = `${annotationsText}${instanceKeyword} ${name}${typeClause}${block}`;
 
         const newContent = text.slice(0, node.$cstNode.offset) + newInstanceText + text.slice(node.$cstNode.end);
         await writeDescriptionAndNotify(filePath, fileUri, newContent);
@@ -135,6 +153,24 @@ export const updateInstanceHandler = async (params: {
             content: [{ type: 'text' as const, text: `✓ Updated instance "${instance}"${newName ? ` (renamed to "${newName}")` : ''}` }],
         };
     } catch (error) {
+        if (error instanceof OntologyNotFoundError) {
+            return {
+                isError: true,
+                content: [{
+                    type: 'text' as const,
+                    text: `❌ ONTOLOGY NOT FOUND: ${error.filePath}\n\nThe description file does not exist. Create it first with create_ontology(kind="description").`
+                }],
+            };
+        }
+        if (error instanceof WrongOntologyTypeError) {
+            return {
+                isError: true,
+                content: [{
+                    type: 'text' as const,
+                    text: `❌ WRONG ONTOLOGY TYPE: Expected "description" but found "${error.actualType}". Instances can only exist in description files.`
+                }],
+            };
+        }
         return {
             isError: true,
             content: [{ type: 'text' as const, text: `Error updating instance: ${error instanceof Error ? error.message : String(error)}` }],

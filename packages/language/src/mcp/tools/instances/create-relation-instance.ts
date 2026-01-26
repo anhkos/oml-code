@@ -1,21 +1,36 @@
 import { z } from 'zod';
-import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral, insertBeforeClosingBrace } from '../common.js';
+import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral, insertBeforeClosingBrace, stripLocalPrefix, collectImportPrefixes, validateReferencedPrefixes, appendValidationIfSafeMode } from '../common.js';
 import { annotationParamSchema, propertyValueParamSchema } from '../schemas.js';
-import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance } from '../description-common.js';
+import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance, OntologyNotFoundError, WrongOntologyTypeError } from '../description-common.js';
+import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
+import { preferencesState } from '../preferences/preferences-state.js';
 
 const paramsSchema = {
-    ontology: z.string().describe('File path or file:// URI to the target description'),
-    name: z.string().describe('Relation instance name'),
-    types: z.array(z.string()).optional().describe('Type assertions (relation entity references)'),
-    sources: z.array(z.string()).optional().describe('Source instances (from)'),
-    targets: z.array(z.string()).optional().describe('Target instances (to)'),
-    propertyValues: z.array(propertyValueParamSchema).optional().describe('Property value assertions'),
-    annotations: z.array(annotationParamSchema).optional(),
+    ontology: z.string().describe('ABSOLUTE file path to the target description. The file MUST exist - use create_ontology first if needed.'),
+    name: z.string().describe('Relation instance name (e.g., "R1_expresses_MC")'),
+    types: z.array(z.string()).optional().describe('Relation entity types this instance conforms to. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
+    sources: z.array(z.string()).optional().describe('Source instances for "from" clause. Use qualified names (prefix:Name) for instances from other descriptions.'),
+    targets: z.array(z.string()).optional().describe('Target instances for "to" clause. Use qualified names (prefix:Name) for instances from other descriptions.'),
+    propertyValues: z.array(propertyValueParamSchema).optional().describe('Property value assertions inside the instance block'),
+    annotations: z.array(annotationParamSchema).optional().describe('Annotations that appear before the instance declaration'),
 };
 
 export const createRelationInstanceTool = {
     name: 'create_relation_instance' as const,
-    description: 'Creates a relation instance in a description with optional types, sources, targets, and property values.',
+    description: `Creates a relation instance in a description ontology linking source and target instances.
+
+TIP: Use suggest_oml_symbols with symbolType="entity" to discover available relation entity types.
+If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.
+
+Example usage to create: relation instance R1_expresses_MC : requirement:Expresses [ from R1 to MissionCommander ]
+
+Call with:
+- name: "R1_expresses_MC"
+- types: ["requirement:Expresses"]
+- sources: ["R1"]
+- targets: ["MissionCommander"]
+
+Note: For simple property-based relations (like requirement:expresses), use create_concept_instance with referencedValues instead.`,
     paramsSchema,
 };
 
@@ -70,10 +85,39 @@ export const createRelationInstanceHandler = async (params: {
             };
         }
 
+        // Resolve types - support both simple names and qualified names
+        const entityTypes: OmlSymbolType[] = ['concept', 'aspect', 'relation_entity'];
+        const resolvedTypes: string[] = [];
+        
+        if (types && types.length > 0) {
+            for (const t of types) {
+                const resolution = await resolveSymbolName(t, fileUri, entityTypes);
+                if (!resolution.success) {
+                    return createResolutionErrorResult(resolution, t, 'type');
+                }
+                resolvedTypes.push(stripLocalPrefix(resolution.qualifiedName!, description.prefix));
+            }
+        }
+
+        // Validate all referenced prefixes are imported
+        const existingPrefixes = collectImportPrefixes(text, description.prefix);
+        const allReferencedNames = [
+            ...resolvedTypes,
+            ...(sources ?? []).filter(s => s.includes(':')),
+            ...(targets ?? []).filter(t => t.includes(':')),
+            ...(propertyValues ?? []).flatMap(pv => [
+                pv.property,
+                ...(pv.referencedValues ?? []).filter(rv => rv.includes(':'))
+            ]),
+            ...(annotations ?? []).map(a => a.property),
+        ];
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create relation instance with unresolved references.');
+        if (prefixError) return prefixError;
+
         const innerIndent = indent + indent;
         const annotationsText = formatAnnotations(annotations, indent, eol);
 
-        const typeClause = types && types.length > 0 ? ` : ${types.join(', ')}` : '';
+        const typeClause = resolvedTypes.length > 0 ? ` : ${resolvedTypes.join(', ')}` : '';
         const fromToText = buildFromTo(sources, targets, innerIndent, eol);
         const propText = buildPropertyValues(propertyValues, innerIndent, eol);
         const bodyText = fromToText + propText;
@@ -83,10 +127,45 @@ export const createRelationInstanceHandler = async (params: {
         const newContent = insertBeforeClosingBrace(text, instanceText);
         await writeDescriptionAndNotify(filePath, fileUri, newContent);
 
-        return {
+        const result = {
             content: [{ type: 'text' as const, text: `✓ Created relation instance "${name}"` }],
         };
+
+        // Run validation if safe mode is enabled
+        const safeMode = preferencesState.getPreferences().safeMode ?? false;
+        return appendValidationIfSafeMode(result, fileUri, safeMode);
     } catch (error) {
+        // Handle specific error types with helpful guidance
+        if (error instanceof OntologyNotFoundError) {
+            return {
+                isError: true,
+                content: [{
+                    type: 'text' as const,
+                    text: `❌ ONTOLOGY NOT FOUND: ${error.filePath}\n\n` +
+                        `The description file does not exist yet.\n\n` +
+                        `🔧 ACTION REQUIRED:\n` +
+                        `  1. First, create the description using create_ontology with kind="description"\n` +
+                        `  2. Then add_import to include the vocabularies defining your relation types\n` +
+                        `  3. Then call create_relation_instance again\n\n` +
+                        `Example:\n` +
+                        `  create_ontology(filePath="${error.filePath}", kind="description", namespace="...", prefix="...")\n` +
+                        `  add_import(ontology="${error.filePath}", targetOntologyPath="path/to/vocabulary.oml")`
+                }],
+            };
+        }
+        
+        if (error instanceof WrongOntologyTypeError) {
+            return {
+                isError: true,
+                content: [{
+                    type: 'text' as const,
+                    text: `❌ WRONG ONTOLOGY TYPE: Expected "description" but found "${error.actualType}"\n\n` +
+                        `Instances can only be created in DESCRIPTION files, not vocabularies.\n\n` +
+                        `💡 Create a new description file for your instances using create_ontology with kind="description".`
+                }],
+            };
+        }
+        
         return {
             isError: true,
             content: [{ type: 'text' as const, text: `Error creating relation instance: ${error instanceof Error ? error.message : String(error)}` }],

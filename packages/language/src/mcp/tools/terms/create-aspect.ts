@@ -6,9 +6,13 @@ import {
     writeFileAndNotify,
     findTerm,
     formatAnnotations,
+    collectImportPrefixes,
+    validateReferencedPrefixes,
+    appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { buildKeyLines } from './text-builders.js';
+import { preferencesState } from '../preferences/preferences-state.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
@@ -29,6 +33,15 @@ export const createAspectHandler = async (
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
+        // Validate all referenced prefixes are imported
+        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const allReferencedNames = [
+            ...(keys?.flat() ?? []),
+            ...(annotations?.map(a => a.property) ?? []),
+        ];
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create aspect with unresolved references.');
+        if (prefixError) return prefixError;
+
         if (findTerm(vocabulary, name)) {
             return {
                 isError: true,
@@ -47,11 +60,15 @@ export const createAspectHandler = async (
         const newContent = insertBeforeClosingBrace(text, aspectText);
         await writeFileAndNotify(filePath, fileUri, newContent);
 
-        return {
+        const result = {
             content: [
                 { type: 'text' as const, text: `✓ Created aspect "${name}"\n\nGenerated code:\n${aspectText.trim()}` },
             ],
         };
+
+        // Run validation if safe mode is enabled
+        const safeMode = preferencesState.getPreferences().safeMode ?? false;
+        return appendValidationIfSafeMode(result, fileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

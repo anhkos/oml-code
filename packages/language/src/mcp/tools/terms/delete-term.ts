@@ -1,18 +1,26 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, findSymbolReferences, formatImpactWarning } from '../common.js';
 
 const paramsSchema = {
-    ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
+    ontology: z.string().describe('ABSOLUTE file path to the target vocabulary'),
     term: z.string().describe('Name of the term to delete'),
+    force: z.boolean().optional().describe('Force deletion even if the term is referenced elsewhere. Default: false'),
 };
 
 export const deleteTermTool = {
     name: 'delete_term' as const,
-    description: 'Deletes a term (scalar, entity, property, or relation) from the vocabulary.',
+    description: `Deletes a term (scalar, entity, property, or relation) from the vocabulary.
+
+⚠️ This tool performs IMPACT ANALYSIS before deletion:
+- Scans the workspace for files that reference this term
+- Shows specializations, instances, restrictions, and other usages
+- Without force=true, will warn about impacts but still delete
+
+Use force=true to suppress the impact warning.`,
     paramsSchema,
 };
 
-export const deleteTermHandler = async ({ ontology, term }: { ontology: string; term: string }) => {
+export const deleteTermHandler = async ({ ontology, term, force = false }: { ontology: string; term: string; force?: boolean }) => {
     try {
         const { vocabulary, filePath, fileUri, text, eol } = await loadVocabularyDocument(ontology);
         const node = findTerm(vocabulary, term);
@@ -25,6 +33,13 @@ export const deleteTermHandler = async ({ ontology, term }: { ontology: string; 
                 ],
             };
         }
+
+        // Perform impact analysis
+        const impact = await findSymbolReferences(term, filePath, {
+            searchSpecializations: true,
+            searchInstances: true,
+            searchPropertyUsage: true,
+        });
 
         const startOffset = node.$cstNode.offset;
         const endOffset = node.$cstNode.end;
@@ -46,9 +61,18 @@ export const deleteTermHandler = async ({ ontology, term }: { ontology: string; 
 
         await writeFileAndNotify(filePath, fileUri, newContent);
 
+        // Build result message
+        let message = `✓ Deleted term "${term}"`;
+        
+        if (!force && impact.references.length > 0) {
+            message += formatImpactWarning(impact);
+        } else if (impact.references.length === 0) {
+            message += '\n\n✓ No external references found - safe to delete.';
+        }
+
         return {
             content: [
-                { type: 'text' as const, text: `✓ Deleted term "${term}"` },
+                { type: 'text' as const, text: message },
             ],
         };
     } catch (error) {

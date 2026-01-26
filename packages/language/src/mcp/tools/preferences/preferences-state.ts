@@ -9,6 +9,13 @@ export interface UserPreferences {
     autonomy: AutonomyMode;
     policies?: string[];
     metadata?: Record<string, unknown>;
+    /** 
+     * Safe mode: when enabled, automatically runs validate_oml after mutations to catch errors early.
+     * Applies to term creation, instance creation, axiom modifications, and property updates.
+     * Does NOT automatically run ensure_imports - that must be called explicitly if needed.
+     * Recommended for weaker models to catch errors early.
+     */
+    safeMode?: boolean;
 }
 
 export interface FeedbackEntry {
@@ -24,6 +31,7 @@ class PreferencesState {
     private preferences: UserPreferences = {
         autonomy: 'confirm',
         policies: [],
+        safeMode: false,
     };
 
     private feedbackLog: FeedbackEntry[] = [];
@@ -57,7 +65,7 @@ class PreferencesState {
     }
 
     getContextPrompt(): string {
-        const { autonomy, policies } = this.preferences;
+        const { autonomy, policies, safeMode } = this.preferences;
         
         let prompt = `Current user preferences:\n`;
         prompt += `- Autonomy mode: ${autonomy}\n`;
@@ -68,6 +76,12 @@ class PreferencesState {
             prompt += `  → Present a plan with all tool calls, ask for approval once, then execute.\n`;
         } else if (autonomy === 'auto') {
             prompt += `  → Execute tool calls automatically, but validate first; fall back to confirm if validation fails.\n`;
+        }
+
+        prompt += `- Safe mode: ${safeMode ? 'enabled' : 'disabled'}\n`;
+        if (safeMode) {
+            prompt += `  → Mutations will automatically run validate_oml to catch errors early.\n`;
+            prompt += `  → Note: ensure_imports is NOT run automatically; call it explicitly if needed.\n`;
         }
 
         if (policies && policies.length > 0) {

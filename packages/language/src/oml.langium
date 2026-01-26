@@ -223,10 +223,10 @@ Scalar:
 		 ownedEnumeration=LiteralEnumerationAxiom
 	']')? (ScalarSpecialization)? (ScalarEquivalence)?;
 
-fragment ScalarSpecialization infers Scalar:
+fragment ScalarSpecialization:
 	'<' ownedSpecializations+=SpecializationAxiom (',' ownedSpecializations+=SpecializationAxiom)*;
 
-fragment ScalarEquivalence infers Scalar:
+fragment ScalarEquivalence:
 	'=' ownedEquivalences+=ScalarEquivalenceAxiom (',' ownedEquivalences+=ScalarEquivalenceAxiom)*;
 
 Entity:
@@ -268,7 +268,7 @@ RelationEntity:
 		(ownedKeys+=KeyAxiom)*
 	']')? (EntitySpecialization)? (EntityEquivalence)?;
 
-fragment EntitySpecialization infers Entity:
+fragment EntitySpecialization:
 	'<'
 		(
 			// At least one specialization, optional restriction block
@@ -280,7 +280,7 @@ fragment EntitySpecialization infers Entity:
 			'[' ownedPropertyRestrictions+=PropertyRestrictionAxiom* ']'
 		);
 
-fragment EntityEquivalence infers Entity:
+fragment EntityEquivalence:
 	'=' ownedEquivalences+=EntityEquivalenceAxiom (',' ownedEquivalences+=EntityEquivalenceAxiom)*;
 
 ////////////////////////////////////////
@@ -296,10 +296,10 @@ SemanticProperty:
 	ScalarProperty |
 	Relation;
 
-fragment PropertySpecialization infers SpecializableProperty:
+fragment PropertySpecialization:
 	'<' ownedSpecializations+=SpecializationAxiom (',' ownedSpecializations+=SpecializationAxiom)*;
 
-fragment PropertyEquivalence infers SpecializableProperty:
+fragment PropertyEquivalence:
 	'=' ownedEquivalences+=PropertyEquivalenceAxiom (',' ownedEquivalences+=PropertyEquivalenceAxiom)*;
 
 ////////////////////////////////////////
@@ -465,7 +465,7 @@ TypeAssertion:
 PropertyValueAssertion:
 	property=[SemanticProperty:Ref] PropertyValue ("," PropertyValue)*;
 
-fragment PropertyValue infers PropertyValueAssertion:
+fragment PropertyValue:
 	(literalValues+=Literal | containedValues+=AnonymousInstance | referencedValues+=[NamedInstance:Ref]);
 
 ////////////////////////////////////////

@@ -44,7 +44,7 @@ describe('Parsing tests', () => {
                                         .map((c: any) => c.name).join('\n  ') : ''}
                         `
                 ).toBe(s`
-                        Namespace: <http://example.com/test#>
+                        Namespace: http://example.com/test#
                         Prefix: v
                         Concepts:
                             Langium

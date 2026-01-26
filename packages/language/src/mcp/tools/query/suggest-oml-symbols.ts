@@ -5,7 +5,7 @@ import { URI } from 'langium';
 import { NodeFileSystem } from 'langium/node';
 import { createOmlServices } from '../../../oml-module.js';
 import { isVocabulary, isDescription, isVocabularyBundle, isDescriptionBundle } from '../../../generated/ast.js';
-import { pathToFileUri, fileUriToPath } from '../common.js';
+import { pathToFileUri, fileUriToPath, getFreshDocument } from '../common.js';
 
 const LSP_PORT = 5007;
 
@@ -158,8 +158,8 @@ export const suggestOmlSymbolsHandler = async (
 
         // Load current ontology to get context (imports, namespace)
         const services = createOmlServices(NodeFileSystem);
-        const document = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(fileUri));
-        await services.shared.workspace.DocumentBuilder.build([document], { validation: false });
+        // Use getFreshDocument for the current file to ensure we read the latest content
+        const document = await getFreshDocument(services, fileUri);
 
         const root = document.parseResult.value;
         if (!isVocabulary(root) && !isDescription(root) && !isVocabularyBundle(root) && !isDescriptionBundle(root)) {

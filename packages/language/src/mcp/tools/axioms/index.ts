@@ -7,6 +7,10 @@ import { updateAnnotationHandler, updateAnnotationTool } from './update-annotati
 import { updateEquivalenceHandler, updateEquivalenceTool } from './update-equivalence.js';
 import { updateKeyHandler, updateKeyTool } from './update-key.js';
 import { updateRestrictionHandler, updateRestrictionTool } from './update-restriction.js';
+import { deleteAnnotationHandler, deleteAnnotationTool } from './delete-annotation.js';
+import { deleteRestrictionHandler, deleteRestrictionTool } from './delete-restriction.js';
+import { deleteEquivalenceHandler, deleteEquivalenceTool } from './delete-equivalence.js';
+import { deleteKeyHandler, deleteKeyTool } from './delete-key.js';
 
 export const axiomTools: ToolRegistration[] = [
     { tool: addSpecializationTool, handler: addSpecializationHandler },
@@ -17,4 +21,8 @@ export const axiomTools: ToolRegistration[] = [
     { tool: updateEquivalenceTool, handler: updateEquivalenceHandler },
     { tool: updateKeyTool, handler: updateKeyHandler },
     { tool: updateRestrictionTool, handler: updateRestrictionHandler },
+    { tool: deleteAnnotationTool, handler: deleteAnnotationHandler },
+    { tool: deleteRestrictionTool, handler: deleteRestrictionHandler },
+    { tool: deleteEquivalenceTool, handler: deleteEquivalenceHandler },
+    { tool: deleteKeyTool, handler: deleteKeyHandler },
 ];

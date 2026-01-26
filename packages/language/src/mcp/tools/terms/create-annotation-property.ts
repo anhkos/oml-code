@@ -6,8 +6,12 @@ import {
     writeFileAndNotify,
     findTerm,
     formatAnnotations,
+    collectImportPrefixes,
+    validateReferencedPrefixes,
+    appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
+import { preferencesState } from '../preferences/preferences-state.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
@@ -27,6 +31,12 @@ export const createAnnotationPropertyHandler = async (
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
+        // Validate all referenced prefixes are imported
+        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const allReferencedNames = annotations?.map(a => a.property) ?? [];
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create annotation property with unresolved references.');
+        if (prefixError) return prefixError;
+
         if (findTerm(vocabulary, name)) {
             return {
                 isError: true,
@@ -42,11 +52,15 @@ export const createAnnotationPropertyHandler = async (
         const newContent = insertBeforeClosingBrace(text, propertyText);
         await writeFileAndNotify(filePath, fileUri, newContent);
 
-        return {
+        const result = {
             content: [
                 { type: 'text' as const, text: `✓ Created annotation property "${name}"\n\nGenerated code:\n${propertyText.trim()}` },
             ],
         };
+
+        // Run validation if safe mode is enabled
+        const safeMode = preferencesState.getPreferences().safeMode ?? false;
+        return appendValidationIfSafeMode(result, fileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

@@ -1,27 +1,60 @@
 import { z } from 'zod';
 import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance } from '../description-common.js';
 import { literalParamSchema } from '../schemas.js';
+import { formatLiteral, LiteralParam, collectImportPrefixes, validateReferencedPrefixes, appendValidationIfSafeMode } from '../common.js';
+import { preferencesState } from '../preferences/preferences-state.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the description ontology'),
     instanceName: z.string().describe('Name of the instance to update'),
-    property: z.string().describe('Property name to update'),
-    literalValues: z.array(literalParamSchema).optional().describe('New literal values'),
-    referencedValues: z.array(z.string()).optional().describe('New referenced values'),
+    property: z.string().describe('Property name to update. Must be qualified (prefix:Name) for imported properties, e.g., "base:description", "requirement:isExpressedBy"'),
+    literalValues: z.array(literalParamSchema).optional().describe('New literal values for scalar properties'),
+    referencedValues: z.array(z.string()).optional().describe('New referenced instance names for relation assertions. Use qualified names (prefix:Name) for instances from other descriptions.'),
 };
 
 export const updatePropertyValueTool = {
     name: 'update_property_value' as const,
-    description: 'Updates a property value assertion on an instance by replacing existing values for the specified property.',
+    description: `Updates a property value assertion on an instance by replacing existing values for the specified property.
+
+OML syntax for property assertions is: property value1, value2
+Example: base:description "Some text"
+Example: requirement:isExpressedBy Operator, SafetyOfficer
+
+Use literalValues for scalar properties and referencedValues for relations to other instances.`,
     paramsSchema,
 };
 
 export const updatePropertyValueHandler = async (
     { ontology, instanceName, property, literalValues, referencedValues }: 
-    { ontology: string; instanceName: string; property: string; literalValues?: any[]; referencedValues?: string[] }
+    { ontology: string; instanceName: string; property: string; literalValues?: LiteralParam[]; referencedValues?: string[] }
 ) => {
+    // Check if user is trying to update types via rdf:type - redirect to update_instance
+    if (property === 'rdf:type' || property === 'type' || property === 'base:types' || property.endsWith(':type')) {
+        const typesJson = JSON.stringify(referencedValues || []);
+        return {
+            isError: true,
+            content: [{
+                type: 'text' as const,
+                text: `\n` +
+                    `========================================\n` +
+                    `❌ STOP: "${property}" is NOT a property in OML!\n` +
+                    `========================================\n\n` +
+                    `In OML, types are part of the instance DECLARATION, not properties.\n\n` +
+                    `🔧 CALL THIS EXACT TOOL NOW:\n\n` +
+                    `  Tool: update_instance\n` +
+                    `  Parameters:\n` +
+                    `    ontology: "${ontology}"\n` +
+                    `    instance: "${instanceName}"\n` +
+                    `    newTypes: ${typesJson}\n\n` +
+                    `This changes: instance ${instanceName} : OldType\n` +
+                    `To: instance ${instanceName} : ${(referencedValues || []).join(', ')}\n` +
+                    `========================================`
+            }],
+        };
+    }
+
     try {
-        const { description, filePath, fileUri, text, indent } = await loadDescriptionDocument(ontology);
+        const { description, filePath, fileUri, text } = await loadDescriptionDocument(ontology);
 
         const instance = findInstance(description, instanceName);
         if (!instance || !instance.$cstNode) {
@@ -31,53 +64,75 @@ export const updatePropertyValueHandler = async (
             };
         }
 
-        const instanceText = text.slice(instance.$cstNode.offset, instance.$cstNode.end);
+        // Validate all referenced prefixes are imported
+        const existingPrefixes = collectImportPrefixes(text, description.prefix);
+        const allReferencedNames = [
+            property,
+            ...(referencedValues ?? []).filter(rv => rv.includes(':')),
+        ];
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot update property with unresolved references.');
+        if (prefixError) return prefixError;
+
+        const instanceStart = instance.$cstNode.offset;
+        const instanceEnd = instance.$cstNode.end;
+        const instanceText = text.slice(instanceStart, instanceEnd);
         
-        // Find the property value line(s) to replace
-        // Pattern: property value [ literalOrRefs ]
-        const propertyPattern = new RegExp(`(${indent}${indent}${property}\\s+\\[)[^\\]]*\\]`, 'g');
+        // Escape property for regex (handle colons and special chars)
+        const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         
-        if (!propertyPattern.test(instanceText)) {
+        // OML property assertion syntax: property value1, value2, ...
+        // Match the property followed by values until end of line or next property/closing bracket
+        // Values can be: "string", number, true/false, or InstanceRef
+        const propertyPattern = new RegExp(
+            `([ \\t]*)(${escapedProperty})\\s+([^\\n\\r]+?)(?=\\s*(?:\\n|\\r|$|\\]))`,
+            'gm'
+        );
+        
+        const match = propertyPattern.exec(instanceText);
+        if (!match) {
             return {
                 isError: true,
-                content: [{ type: 'text' as const, text: `Property "${property}" not found on instance "${instanceName}".` }],
+                content: [{ type: 'text' as const, text: `Property "${property}" not found on instance "${instanceName}". Use create_concept_instance or manually add the property first.` }],
             };
         }
 
         // Build new property value assertion
-        const values = [];
+        const values: string[] = [];
         if (literalValues && literalValues.length > 0) {
-            for (const lit of literalValues) {
-                const formatLiteral = (l: any) => {
-                    if (l.type === 'quoted') {
-                        const val = String(l.value).replace(/"/g, '\\"');
-                        if (l.scalarType) return `"${val}"^^${l.scalarType}`;
-                        if (l.langTag) return `"${val}"$${l.langTag}`;
-                        return `"${val}"`;
-                    }
-                    return String(l.value);
-                };
-                values.push(formatLiteral(lit));
-            }
+            values.push(...literalValues.map(formatLiteral));
         }
         if (referencedValues && referencedValues.length > 0) {
             values.push(...referencedValues);
         }
 
-        const newPropertyLine = `${indent}${indent}${property} [ ${values.join(', ')} ]`;
+        if (values.length === 0) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: `No values provided. Specify either literalValues or referencedValues.` }],
+            };
+        }
+
+        const leadingWhitespace = match[1];
+        const newPropertyLine = `${leadingWhitespace}${property} ${values.join(', ')}`;
         
-        // Replace the property line
-        const updatedInstanceText = instanceText.replace(propertyPattern, newPropertyLine);
+        // Replace the property line in the instance text
+        const updatedInstanceText = instanceText.slice(0, match.index) + 
+            newPropertyLine + 
+            instanceText.slice(match.index + match[0].length);
         
-        const newContent = text.slice(0, instance.$cstNode.offset) + updatedInstanceText + text.slice(instance.$cstNode.end);
+        const newContent = text.slice(0, instanceStart) + updatedInstanceText + text.slice(instanceEnd);
         
         await writeDescriptionAndNotify(filePath, fileUri, newContent);
 
-        return {
+        const result = {
             content: [
                 { type: 'text' as const, text: `✓ Updated property "${property}" on instance "${instanceName}"` },
             ],
         };
+
+        // Run validation if safe mode is enabled
+        const safeMode = preferencesState.getPreferences().safeMode ?? false;
+        return appendValidationIfSafeMode(result, fileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

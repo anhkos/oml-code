@@ -1,27 +1,51 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
-import { URI } from 'langium';
 import { NodeFileSystem } from 'langium/node';
 import { createOmlServices } from '../../oml-module.js';
 import { Description, isDescription } from '../../generated/ast.js';
-import { LSP_BRIDGE_PORT, pathToFileUri, fileUriToPath, detectIndentation } from './common.js';
+import { LSP_BRIDGE_PORT, pathToFileUri, fileUriToPath, detectIndentation, getFreshDocument } from './common.js';
+
+/**
+ * Custom error class for when an ontology file doesn't exist.
+ * This allows callers to provide helpful guidance to the model.
+ */
+export class OntologyNotFoundError extends Error {
+    constructor(public readonly filePath: string) {
+        super(`ONTOLOGY_NOT_FOUND: ${filePath}`);
+        this.name = 'OntologyNotFoundError';
+    }
+}
+
+/**
+ * Custom error class for when a file exists but is not the expected type.
+ */
+export class WrongOntologyTypeError extends Error {
+    constructor(
+        public readonly filePath: string,
+        public readonly expectedType: string,
+        public readonly actualType: string
+    ) {
+        super(`Expected ${expectedType} but found ${actualType}`);
+        this.name = 'WrongOntologyTypeError';
+    }
+}
 
 export async function loadDescriptionDocument(ontology: string) {
     const fileUri = pathToFileUri(ontology);
     const filePath = fileUriToPath(fileUri);
 
     if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found at ${filePath}`);
+        throw new OntologyNotFoundError(filePath);
     }
 
     const services = createOmlServices(NodeFileSystem);
-    const document = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(fileUri));
-    await services.shared.workspace.DocumentBuilder.build([document], { validation: false });
+    // Use getFreshDocument to ensure we always read fresh content from disk
+    const document = await getFreshDocument(services, fileUri);
 
     const root = document.parseResult.value;
     if (!isDescription(root)) {
-        throw new Error('The target ontology is not a description. Only descriptions can contain instances.');
+        throw new WrongOntologyTypeError(filePath, 'description', root.$type || 'unknown');
     }
 
     const text = fs.readFileSync(filePath, 'utf-8');
@@ -56,16 +80,19 @@ export async function writeDescriptionAndNotify(filePath: string, fileUri: strin
         connection = createMessageConnection(reader, writer);
         connection.listen();
 
-        await connection.sendNotification('textDocument/didChange', {
+        // Use didClose/didOpen to force a complete re-read, consistent with vocab tools
+        // This prevents stale views in the language server
+        await connection.sendNotification('textDocument/didClose', {
+            textDocument: { uri: fileUri },
+        });
+
+        await connection.sendNotification('textDocument/didOpen', {
             textDocument: {
                 uri: fileUri,
+                languageId: 'oml',
                 version: Date.now(),
+                text: newContent,
             },
-            contentChanges: [
-                {
-                    text: newContent,
-                },
-            ],
         });
     } catch (error) {
         console.error('[mcp] Failed to notify LSP bridge:', error);

@@ -1,20 +1,36 @@
 import { z } from 'zod';
 import * as fs from 'fs';
-import { AnnotationParam } from '../common.js';
+import * as path from 'path';
+import { AnnotationParam, escapePrefix, resolveWorkspacePath } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
-    filePath: z.string().describe('File path where the ontology will be created'),
-    kind: z.enum(['vocabulary', 'vocabulary_bundle', 'description', 'description_bundle']).describe('Type of ontology'),
-    namespace: z.string().describe('Namespace URI (e.g., <https://example.com/my#>)'),
+    filePath: z.string().describe('ABSOLUTE file path where the ontology will be created. Use the full path from the currently open file.'),
+    kind: z.enum(['vocabulary', 'vocabulary_bundle', 'description', 'description_bundle']).describe('Type of ontology: "vocabulary" for defining concepts/types, "description" for creating instances of those types'),
+    namespace: z.string().describe('Namespace URI (e.g., https://example.com/my#)'),
     prefix: z.string().describe('Prefix alias (e.g., my or ^process)'),
-    annotations: z.array(annotationParamSchema).optional().describe('Optional top-level annotations (e.g., @dc:title, @dc:description)'),
+    annotations: z.array(annotationParamSchema).optional().describe('Optional top-level annotations. Prefer dc:title and dc:description for standard metadata. Imports auto-added.'),
 };
 
 export const createOntologyTool = {
     name: 'create_ontology' as const,
-    description: 'Creates a new vocabulary, vocabulary bundle, description, or description bundle file with annotations.',
+    description: `Creates a new OML ontology file.
+
+IMPORTANT: Use the ABSOLUTE file path for filePath. Check the currently open file to get the correct path.
+
+Choose the right kind:
+- "vocabulary": For defining TYPES (concepts, relations, properties). Use when creating reusable domain models.
+- "description": For creating INSTANCES of types defined in vocabularies. Use when modeling specific individuals/data.
+- "vocabulary_bundle": For aggregating multiple vocabularies.
+- "description_bundle": For aggregating multiple descriptions.
+
+For DESCRIPTION MODELING (creating instances like specific stakeholders or requirements):
+1. Create a "description" ontology
+2. It will "uses" vocabularies that define the types
+3. Then use create_concept_instance to add instances WITH types from those vocabularies
+
+Annotations like dc:title and dc:description are auto-imported.`,
     paramsSchema,
 };
 
@@ -37,9 +53,21 @@ export const createOntologyHandler = async (params: {
     prefix: string;
     annotations?: AnnotationParam[];
 }) => {
-    const { filePath, kind, namespace, prefix, annotations } = params;
+    const { filePath: inputPath, kind, namespace, prefix: inputPrefix, annotations } = params;
 
     try {
+        // Resolve to absolute path relative to workspace root (not cwd)
+        const filePath = resolveWorkspacePath(inputPath);
+        console.error(`[create_ontology] Input path: ${inputPath}`);
+        console.error(`[create_ontology] Workspace root: ${process.env.OML_WORKSPACE_ROOT || '(using cwd)'}`);
+        console.error(`[create_ontology] Resolved path: ${filePath}`);
+        
+        // Escape prefix if it's a reserved keyword
+        const prefix = escapePrefix(inputPrefix);
+        if (prefix !== inputPrefix) {
+            console.error(`[create_ontology] Escaped reserved keyword prefix: ${inputPrefix} -> ${prefix}`);
+        }
+        
         const eol = '\n';
 
         const kindKeyword =
@@ -63,8 +91,12 @@ export const createOntologyHandler = async (params: {
         let content = '';
 
         // Check if file already exists
-        if (fs.existsSync(filePath)) {
+        const fileExists = fs.existsSync(filePath);
+        console.error(`[create_ontology] File exists: ${fileExists}`);
+        
+        if (fileExists) {
             const existingContent = fs.readFileSync(filePath, 'utf-8');
+            console.error(`[create_ontology] Existing content (${existingContent.length} chars): "${existingContent.substring(0, 100)}"`);
             
             // Strip old annotations (lines starting with @) and find vocabulary declaration
             const lines = existingContent.split(/\r?\n/);
@@ -82,42 +114,63 @@ export const createOntologyHandler = async (params: {
                 // Keep everything from vocabulary line onward
                 const bodyLines = lines.slice(vocabularyLineIndex);
                 content = annotationsText + bodyLines.join(eol);
+                console.error(`[create_ontology] Updating existing file, found vocabulary at line ${vocabularyLineIndex}`);
             } else {
                 // No vocabulary found, replace entire file
                 content = annotationsText + `${kindKeyword} ${formattedNamespace} as ${prefix} {${eol}${eol}${eol}${eol}}`;
+                console.error(`[create_ontology] Existing file has no vocabulary declaration, replacing content`);
             }
         } else {
             // Create new file
             content = annotationsText + `${kindKeyword} ${formattedNamespace} as ${prefix} {${eol}${eol}${eol}${eol}}`;
+            console.error(`[create_ontology] Creating new file`);
 
             // Create directory if needed
-            const dir = filePath.substring(0, filePath.lastIndexOf('\\'));
-            if (dir && !fs.existsSync(dir)) {
+            const dir = path.dirname(filePath);
+            console.error(`[create_ontology] Directory: ${dir}`);
+            if (dir && dir !== '.' && !fs.existsSync(dir)) {
+                console.error(`[create_ontology] Creating directory: ${dir}`);
                 fs.mkdirSync(dir, { recursive: true });
             }
         }
 
-        // Write file
-        fs.writeFileSync(filePath, content, 'utf-8');
-
-        // Auto-ensure imports if annotations include dc:* or other known prefixes
-        const hasAnnotations = annotations && annotations.length > 0;
-        const hasDcAnnotation = hasAnnotations && annotations.some(a => a.property.startsWith('dc:'));
+        console.error(`[create_ontology] Content to write (${content.length} chars):\n${content}`);
         
-        if (hasDcAnnotation) {
-            // Silently call ensure_imports to add required imports
+        // Write file with explicit sync to ensure content is flushed to disk
+        const fd = fs.openSync(filePath, 'w');
+        fs.writeSync(fd, content, 0, 'utf-8');
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        console.error(`[create_ontology] File written and synced successfully`);
+        
+        // Verify the write
+        const verifyContent = fs.readFileSync(filePath, 'utf-8');
+        console.error(`[create_ontology] Verified file content (${verifyContent.length} chars): ${verifyContent.substring(0, 100)}...`);
+
+        // Auto-ensure imports for any annotation prefixes used (dc:, xsd:)
+        const hasAnnotations = annotations && annotations.length > 0;
+        
+        if (hasAnnotations) {
+            // Silently call ensure_imports to add required imports based on detected prefixes
             try {
+                console.error(`[create_ontology] Calling ensureImportsHandler...`);
                 await ensureImportsHandler({ ontology: filePath });
-            } catch {
+                console.error(`[create_ontology] ensureImportsHandler completed`);
+            } catch (importError) {
+                console.error(`[create_ontology] ensureImportsHandler error:`, importError);
                 // Ignore errors from import ensurance to avoid breaking creation
             }
         }
 
+        // Final verification - read back the file to confirm content
+        const finalContent = fs.readFileSync(filePath, 'utf-8');
+        const contentPreview = finalContent.length > 200 ? finalContent.substring(0, 200) + '...' : finalContent;
+        
         return {
             content: [
                 {
                     type: 'text' as const,
-                    text: `✓ Created ${kind} at ${filePath}\n\nNamespace: ${namespace}\nPrefix: ${prefix}${hasDcAnnotation ? '\n✓ Auto-added dc imports' : ''}`,
+                    text: `✓ Created ${kind} at:\n${filePath}\n\nNamespace: ${namespace}\nPrefix: ${prefix}${hasAnnotations ? '\n✓ Auto-added imports for annotation prefixes' : ''}\n\n--- File content (${finalContent.length} chars) ---\n${contentPreview}`,
                 },
             ],
         };

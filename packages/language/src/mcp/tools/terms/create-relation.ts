@@ -12,16 +12,15 @@ import {
     appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
-import { buildFromToLines, buildForwardReverse, buildRelationFlags, buildKeyLines } from './text-builders.js';
+import { buildFromToLines, buildForwardReverse, buildRelationFlags } from './text-builders.js';
 import { preferencesState } from '../preferences/preferences-state.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
-    name: z.string().describe('Relation entity name to create'),
+    name: z.string().describe('Relation name to create'),
     sources: z.array(z.string()).optional().describe('Source entities. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
     targets: z.array(z.string()).optional().describe('Target entities. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
-    forwardName: z.string().optional().describe('Forward role name'),
     reverseName: z.string().optional().describe('Reverse role name'),
     functional: z.boolean().optional(),
     inverseFunctional: z.boolean().optional(),
@@ -30,27 +29,27 @@ const paramsSchema = {
     reflexive: z.boolean().optional(),
     irreflexive: z.boolean().optional(),
     transitive: z.boolean().optional(),
-    keys: z.array(z.array(z.string())).optional(),
-    superTerms: z.array(z.string()).optional().describe('Optional parent terms this relation entity specializes. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
     annotations: z.array(annotationParamSchema).optional(),
 };
 
-export const createRelationEntityTool = {
-    name: 'create_relation_entity' as const,
-    description: `[ADVANCED - DO NOT USE BY DEFAULT] Creates a relation entity, which is a special reified relation that can be instantiated and have properties attached. ONLY use this tool when the user explicitly requests a "relation entity" or when you need to create instances of the relation itself or attach scalar properties to it. For normal relationships between entities, use create_relation instead.
+export const createRelationTool = {
+    name: 'create_relation' as const,
+    description: `[DEFAULT - USE THIS FOR ALL RELATIONS] Creates a relation between entities. This is the standard and recommended way to define relationships in OML. ALWAYS use this tool for creating relations unless the user explicitly requests a "relation entity". Relations have from/to entities and an optional reverse name.
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available entities for sources/targets/superTerms.
+TIP: Use suggest_oml_symbols with symbolType="entity" to discover available entities for sources/targets.
 If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.`,
     paramsSchema,
 };
 
-export const createRelationEntityHandler = async (
+// Keep the old name as an alias for backwards compatibility
+export const createUnreifiedRelationTool = createRelationTool;
+
+export const createRelationHandler = async (
     params: {
         ontology: string;
         name: string;
         sources?: string[];
         targets?: string[];
-        forwardName?: string;
         reverseName?: string;
         functional?: boolean;
         inverseFunctional?: boolean;
@@ -59,8 +58,6 @@ export const createRelationEntityHandler = async (
         reflexive?: boolean;
         irreflexive?: boolean;
         transitive?: boolean;
-        keys?: string[][];
-        superTerms?: string[];
         annotations?: AnnotationParam[];
     }
 ) => {
@@ -69,7 +66,6 @@ export const createRelationEntityHandler = async (
         name,
         sources,
         targets,
-        forwardName,
         reverseName,
         functional,
         inverseFunctional,
@@ -78,18 +74,16 @@ export const createRelationEntityHandler = async (
         reflexive,
         irreflexive,
         transitive,
-        keys,
         annotations,
     } = params;
 
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
-        // Resolve sources, targets, and superTerms - support both simple names and qualified names
+        // Resolve sources and targets - support both simple names and qualified names
         const entityTypes: OmlSymbolType[] = ['concept', 'aspect', 'relation_entity'];
         const resolvedSources: string[] = [];
         const resolvedTargets: string[] = [];
-        const resolvedSuperTerms: string[] = [];
         
         if (sources && sources.length > 0) {
             for (const src of sources) {
@@ -110,34 +104,22 @@ export const createRelationEntityHandler = async (
                 resolvedTargets.push(stripLocalPrefix(resolution.qualifiedName!, vocabulary.prefix));
             }
         }
-        
-        if (params.superTerms && params.superTerms.length > 0) {
-            for (const st of params.superTerms) {
-                const resolution = await resolveSymbolName(st, fileUri, entityTypes);
-                if (!resolution.success) {
-                    return createResolutionErrorResult(resolution, st, 'super term');
-                }
-                resolvedSuperTerms.push(stripLocalPrefix(resolution.qualifiedName!, vocabulary.prefix));
-            }
-        }
 
         // Validate all referenced prefixes are imported
         const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
         const allReferencedNames = [
             ...resolvedSources,
             ...resolvedTargets,
-            ...resolvedSuperTerms,
-            ...(keys?.flat() ?? []),
             ...(annotations?.map(a => a.property) ?? []),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create relation entity with unresolved references.');
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create relation with unresolved references.');
         if (prefixError) return prefixError;
 
         if (findTerm(vocabulary, name)) {
             return {
                 isError: true,
                 content: [
-                    { type: 'text' as const, text: `Relation entity "${name}" already exists in the vocabulary.` },
+                    { type: 'text' as const, text: `Relation "${name}" already exists in the vocabulary.` },
                 ],
             };
         }
@@ -147,25 +129,22 @@ export const createRelationEntityHandler = async (
 
         let body = '';
         body += buildFromToLines(resolvedSources.length > 0 ? resolvedSources : undefined, resolvedTargets.length > 0 ? resolvedTargets : undefined, innerIndent, eol);
-        body += buildForwardReverse(forwardName, reverseName, innerIndent, eol);
+        body += buildForwardReverse(undefined, reverseName, innerIndent, eol);
         body += buildRelationFlags(
             { functional, inverseFunctional, symmetric, asymmetric, reflexive, irreflexive, transitive },
             innerIndent,
             eol
         );
-        body += buildKeyLines(keys, innerIndent, eol);
 
         const block = body ? ` [${eol}${body}${indent}]` : '';
-        const specializationText = resolvedSuperTerms.length > 0 ? ` < ${Array.from(new Set(resolvedSuperTerms)).join(', ')}` : '';
-        // For relation entity, specialization appears after the block per style
-        const relationText = `${annotationsText}${indent}relation entity ${name}${block}${specializationText}${eol}${eol}`;
+        const relationText = `${annotationsText}${indent}relation ${name}${block}${eol}${eol}`;
 
         const newContent = insertBeforeClosingBrace(text, relationText);
         await writeFileAndNotify(filePath, fileUri, newContent);
 
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Created relation entity "${name}"\n\nGenerated code:\n${relationText.trim()}` },
+                { type: 'text' as const, text: `✓ Created relation "${name}"\n\nGenerated code:\n${relationText.trim()}` },
             ],
         };
 
@@ -176,8 +155,11 @@ export const createRelationEntityHandler = async (
         return {
             isError: true,
             content: [
-                { type: 'text' as const, text: `Error creating relation entity: ${error instanceof Error ? error.message : String(error)}` },
+                { type: 'text' as const, text: `Error creating relation: ${error instanceof Error ? error.message : String(error)}` },
             ],
         };
     }
 };
+
+// Keep the old names as aliases for backwards compatibility
+export const createUnreifiedRelationHandler = createRelationHandler;

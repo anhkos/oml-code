@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import * as fs from 'fs';
-import { URI } from 'langium';
 import { NodeFileSystem } from 'langium/node';
 import { createOmlServices } from '../../../oml-module.js';
 import {
@@ -8,23 +7,30 @@ import {
     fileUriToPath,
     writeFileAndNotify,
     detectIndentation,
+    escapePrefix,
+    getFreshDocument,
 } from '../common.js';
 import { isVocabulary, isDescription, isVocabularyBundle, isDescriptionBundle } from '../../../generated/ast.js';
 
 const paramsSchema = {
-    ontology: z.string().describe('File path to the ontology where the import will be added'),
-    importKind: z.enum(['extends']).describe('Type of import statement'),
-    targetOntologyPath: z.string().describe('File path to the ontology being imported'),
+    ontology: z.string().describe('ABSOLUTE file path to the ontology where the import will be added. Use the full path from the open file.'),
+    importKind: z.enum(['extends', 'uses']).optional().describe('Type of import statement. If omitted, the tool will choose "extends" for vocabularies/bundles and "uses" for descriptions/description bundles.'),
+    targetOntologyPath: z.string().describe('ABSOLUTE file path to the ontology being imported. Use the full path, not relative paths.'),
 };
 
 export const addImportTool = {
     name: 'add_import' as const,
-    description: 'Adds an extends import statement to a vocabulary or description. Validates that the target ontology exists and uses its actual prefix.',
+    description: `Adds an extends/uses import statement to an ontology. Validates that the target ontology exists.
+
+IMPORTANT: Use ABSOLUTE file paths for both ontology and targetOntologyPath parameters.
+If you don't know the exact path to the target ontology, use ensure_imports instead - it auto-discovers workspace vocabularies by prefix.
+
+For most cases, prefer ensure_imports over add_import as it handles path resolution automatically.`,
     paramsSchema,
 };
 
 export const addImportHandler = async (
-    { ontology, importKind, targetOntologyPath }: { ontology: string; importKind: 'extends'; targetOntologyPath: string }
+    { ontology, importKind, targetOntologyPath }: { ontology: string; importKind?: 'extends' | 'uses'; targetOntologyPath: string }
 ) => {
     try {
         // Load source ontology
@@ -34,13 +40,13 @@ export const addImportHandler = async (
         if (!fs.existsSync(sourceFilePath)) {
             return {
                 isError: true,
-                content: [{ type: 'text' as const, text: `Source ontology not found at ${sourceFilePath}` }],
+                content: [{ type: 'text' as const, text: `Source ontology not found.\n\nProvided: ${ontology}\nResolved to: ${sourceFilePath}\n\nTIP: Use the absolute file path from the open file, not a relative path.` }],
             };
         }
 
         const services = createOmlServices(NodeFileSystem);
-        const sourceDocument = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(sourceFileUri));
-        await services.shared.workspace.DocumentBuilder.build([sourceDocument], { validation: false });
+        // Use getFreshDocument to ensure we read the current content from disk
+        const sourceDocument = await getFreshDocument(services, sourceFileUri);
 
         const sourceRoot = sourceDocument.parseResult.value;
         if (!isVocabulary(sourceRoot) && !isDescription(sourceRoot) && !isVocabularyBundle(sourceRoot) && !isDescriptionBundle(sourceRoot)) {
@@ -50,6 +56,9 @@ export const addImportHandler = async (
             };
         }
 
+        const resolvedImportKind: 'extends' | 'uses' =
+            isVocabulary(sourceRoot) || isVocabularyBundle(sourceRoot) ? 'extends' : 'uses';
+
         // Load target ontology to get namespace and prefix
         const targetFileUri = pathToFileUri(targetOntologyPath);
         const targetFilePath = fileUriToPath(targetFileUri);
@@ -57,12 +66,12 @@ export const addImportHandler = async (
         if (!fs.existsSync(targetFilePath)) {
             return {
                 isError: true,
-                content: [{ type: 'text' as const, text: `Target ontology not found at ${targetFilePath}` }],
+                content: [{ type: 'text' as const, text: `Target ontology not found.\n\nProvided: ${targetOntologyPath}\nResolved to: ${targetFilePath}\n\nTIP: Use ensure_imports instead - it auto-discovers workspace vocabularies by prefix and handles path resolution automatically.` }],
             };
         }
 
-        const targetDocument = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(targetFileUri));
-        await services.shared.workspace.DocumentBuilder.build([targetDocument], { validation: false });
+        // Use getFreshDocument to ensure we read the current content from disk
+        const targetDocument = await getFreshDocument(services, targetFileUri);
 
         const targetRoot = targetDocument.parseResult.value;
         if (!isVocabulary(targetRoot) && !isDescription(targetRoot) && !isVocabularyBundle(targetRoot) && !isDescriptionBundle(targetRoot)) {
@@ -73,16 +82,28 @@ export const addImportHandler = async (
         }
 
         const targetNamespace = targetRoot.namespace;
+        const sourceNamespace = sourceRoot.namespace;
+        
+        // Check for self-import (importing a file into itself)
+        if (targetNamespace === sourceNamespace) {
+            return {
+                content: [{ type: 'text' as const, text: `⚠ Skipping self-import: The vocabulary already defines prefix "${sourceRoot.prefix}" - no import needed for references to its own terms.` }],
+            };
+        }
+        
         // Read target text to capture the exact prefix token (including leading ^ if present)
         const targetText = fs.readFileSync(targetFilePath, 'utf-8');
         const prefixMatch = targetText.match(/\bas\s+([^\s{]+)/);
-        const targetPrefix = prefixMatch ? prefixMatch[1] : targetRoot.prefix;
+        let targetPrefix = prefixMatch ? prefixMatch[1] : targetRoot.prefix;
+        
+        // Escape the prefix if it's a reserved keyword and not already escaped
+        targetPrefix = escapePrefix(targetPrefix);
 
         // Check if import already exists
         const existingImports = sourceRoot.ownedImports || [];
         const alreadyExists = existingImports.some(imp => {
             const importedNs = imp.imported.ref?.namespace;
-            return importedNs === targetNamespace && imp.kind === importKind;
+            return importedNs === targetNamespace && imp.kind === resolvedImportKind;
         });
 
         if (alreadyExists) {
@@ -101,7 +122,7 @@ export const addImportHandler = async (
             ? targetNamespace 
             : `<${targetNamespace}>`;
         
-        const importStatement = `${indent}${importKind} ${formattedNamespace} as ${targetPrefix}${eol}`;
+        const importStatement = `${indent}${resolvedImportKind} ${formattedNamespace} as ${targetPrefix}${eol}`;
 
         // Find insertion point: after opening brace, before any existing statements
         const lines = sourceText.split(/\r?\n/);

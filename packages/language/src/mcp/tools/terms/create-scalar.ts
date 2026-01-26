@@ -8,8 +8,12 @@ import {
     findTerm,
     formatAnnotations,
     formatLiteral,
+    collectImportPrefixes,
+    validateReferencedPrefixes,
+    appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema, literalParamSchema } from '../schemas.js';
+import { preferencesState } from '../preferences/preferences-state.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
@@ -29,6 +33,12 @@ export const createScalarHandler = async (
 ) => {
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
+
+        // Validate all referenced prefixes are imported
+        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const allReferencedNames = annotations?.map(a => a.property) ?? [];
+        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create scalar with unresolved references.');
+        if (prefixError) return prefixError;
 
         if (findTerm(vocabulary, name)) {
             return {
@@ -52,11 +62,15 @@ export const createScalarHandler = async (
         const newContent = insertBeforeClosingBrace(text, scalarText);
         await writeFileAndNotify(filePath, fileUri, newContent);
 
-        return {
+        const result = {
             content: [
                 { type: 'text' as const, text: `✓ Created scalar "${name}"\n\nGenerated code:\n${scalarText.trim()}` },
             ],
         };
+
+        // Run validation if safe mode is enabled
+        const safeMode = preferencesState.getPreferences().safeMode ?? false;
+        return appendValidationIfSafeMode(result, fileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

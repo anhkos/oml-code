@@ -9,15 +9,15 @@ import { pendingTools } from './stubs/pending-tools.js';
 import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-imports.js';
 import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
 import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './methodology/smart-create-vocabulary.js';
-import { suggestOmlSymbolsTool, smartAddOmlElementTool } from './query/index.js';
+import { generateVocabularyBundleHandler, generateVocabularyBundleTool } from './methodology/generate-vocabulary-bundle.js';
+import { suggestOmlSymbolsTool, analyzeImpactTool, analyzeImpactHandler } from './query/index.js';
 import { suggestOmlSymbolsHandler } from './query/suggest-oml-symbols.js';
-import { smartAddOmlElementHandler } from './query/smart-add-oml-element.js';
 import { preferencesTools } from './preferences/index.js';
 
 const coreTools: ToolRegistration[] = [
     { tool: validateOmlTool, handler: validateOmlHandler },
     { tool: suggestOmlSymbolsTool, handler: suggestOmlSymbolsHandler },
-    { tool: smartAddOmlElementTool, handler: smartAddOmlElementHandler },
+    { tool: analyzeImpactTool, handler: analyzeImpactHandler },
     ...termTools,
     ...axiomTools,
     ...instanceTools,
@@ -26,6 +26,7 @@ const coreTools: ToolRegistration[] = [
     { tool: ensureImportsTool, handler: ensureImportsHandler },
     { tool: addToBundleTool, handler: addToBundleHandler },
     { tool: smartCreateVocabularyTool, handler: smartCreateVocabularyHandler },
+    { tool: generateVocabularyBundleTool, handler: generateVocabularyBundleHandler },
     ...preferencesTools,
 ];
 
@@ -49,7 +50,7 @@ export const phase1Tools: ToolRegistration[] = pickTools([
     'create_scalar',
     'create_scalar_property',
     'create_annotation_property',
-    'create_unreified_relation',
+    'create_relation',
     'delete_term',
     'add_specialization',
     'delete_specialization',
@@ -66,10 +67,20 @@ export const phase2Tools: ToolRegistration[] = pickTools([
 export const phase3Tools: ToolRegistration[] = pickTools([
     'create_ontology',
     'add_import',
+    'delete_import',
+    'delete_ontology',
     'add_equivalence',
+    'delete_equivalence',
+    'delete_restriction',
+    'delete_annotation',
+    'delete_key',
     'create_rule',
+    'delete_rule',
+    'update_rule',
     'update_term',
     'update_property_value',
+    'delete_property_value',
+    'delete_type_assertion',
     'update_annotation',
     'update_key',
     'update_equivalence',
@@ -77,6 +88,7 @@ export const phase3Tools: ToolRegistration[] = pickTools([
     'ensure_imports',
     'add_to_bundle',
     'smart_create_vocabulary',
+    'generate_vocabulary_bundle',
 ]);
 
 export const allTools: ToolRegistration[] = [

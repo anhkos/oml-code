@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import * as net from 'net';
-import * as path from 'path';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
 import {
     DocumentDiagnosticRequest,
@@ -8,31 +7,7 @@ import {
     DocumentDiagnosticReportKind,
     Diagnostic
 } from 'vscode-languageserver-protocol';
-
-const LSP_BRIDGE_PORT = 5007;
-
-/**
- * Convert a file path to a file URI
- * Handles both Windows and Unix paths, and is idempotent (safe to call on URIs)
- */
-function pathToFileUri(filePath: string): string {
-    // If it's already a file URI, return as-is
-    if (filePath.startsWith('file://')) {
-        return filePath;
-    }
-    
-    // Normalize the path
-    const normalized = path.resolve(filePath);
-    
-    // Convert backslashes to forward slashes (Windows compatibility)
-    const withForwardSlashes = normalized.replace(/\\/g, '/');
-    
-    // Ensure it starts with / for absolute paths
-    const absolute = withForwardSlashes.startsWith('/') ? withForwardSlashes : '/' + withForwardSlashes;
-    
-    // Return as file:// URI
-    return 'file://' + absolute;
-}
+import { LSP_BRIDGE_PORT, pathToFileUri } from './common.js';
 
 export const validateOmlTool = {
     name: 'validate_oml',
