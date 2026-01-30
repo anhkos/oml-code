@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance } from '../description-common.js';
 import { literalParamSchema } from '../schemas.js';
-import { formatLiteral, LiteralParam, collectImportPrefixes, validateReferencedPrefixes, appendValidationIfSafeMode } from '../common.js';
+import { formatLiteral, LiteralParam, collectImportPrefixes, appendValidationIfSafeMode } from '../common.js';
 import { preferencesState } from '../preferences/preferences-state.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to the description ontology'),
@@ -64,18 +65,53 @@ export const updatePropertyValueHandler = async (
             };
         }
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, description.prefix);
+        // Collect all referenced prefixes
         const allReferencedNames = [
             property,
             ...(referencedValues ?? []).filter(rv => rv.includes(':')),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot update property with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
 
-        const instanceStart = instance.$cstNode.offset;
-        const instanceEnd = instance.$cstNode.end;
-        const instanceText = text.slice(instanceStart, instanceEnd);
+        // Check which prefixes are missing
+        let existingPrefixes = collectImportPrefixes(text, description.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        // Auto-add missing imports
+        let currentText = text;
+        let currentFilePath = filePath;
+        let currentFileUri = fileUri;
+        let currentDescription = description;
+        
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            // Reload the document to get updated content with new imports
+            const reloaded = await loadDescriptionDocument(ontology);
+            currentText = reloaded.text;
+            currentFilePath = reloaded.filePath;
+            currentFileUri = reloaded.fileUri;
+            currentDescription = reloaded.description;
+        }
+
+        // Re-find the instance after potential reload
+        const currentInstance = findInstance(currentDescription, instanceName);
+        if (!currentInstance || !currentInstance.$cstNode) {
+            return {
+                isError: true,
+                content: [{ type: 'text' as const, text: `Instance "${instanceName}" not found after import update.` }],
+            };
+        }
+
+        const instanceStart = currentInstance.$cstNode.offset;
+        const instanceEnd = currentInstance.$cstNode.end;
+        const instanceText = currentText.slice(instanceStart, instanceEnd);
         
         // Escape property for regex (handle colons and special chars)
         const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -120,19 +156,24 @@ export const updatePropertyValueHandler = async (
             newPropertyLine + 
             instanceText.slice(match.index + match[0].length);
         
-        const newContent = text.slice(0, instanceStart) + updatedInstanceText + text.slice(instanceEnd);
+        const newContent = currentText.slice(0, instanceStart) + updatedInstanceText + currentText.slice(instanceEnd);
         
-        await writeDescriptionAndNotify(filePath, fileUri, newContent);
+        await writeDescriptionAndNotify(currentFilePath, currentFileUri, newContent);
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Updated property "${property}" on instance "${instanceName}"` },
+                { type: 'text' as const, text: `✓ Updated property "${property}" on instance "${instanceName}"${notes.length ? '\n' + notes.join(' ') : ''}` },
             ],
         };
 
         // Run validation if safe mode is enabled
         const safeMode = preferencesState.getPreferences().safeMode ?? false;
-        return appendValidationIfSafeMode(result, fileUri, safeMode);
+        return appendValidationIfSafeMode(result, currentFileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

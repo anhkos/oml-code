@@ -8,20 +8,20 @@ import {
     formatAnnotations,
     stripLocalPrefix,
     collectImportPrefixes,
-    validateReferencedPrefixes,
     appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { buildInstanceEnumeration, buildKeyLines } from './text-builders.js';
 import { preferencesState } from '../preferences/preferences-state.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path to a VOCABULARY file (not description). Concepts can only be defined in vocabularies.'),
     name: z.string().describe('Concept name to create (must start with capital letter, e.g., "Stakeholder", "Requirement")'),
     keys: z.array(z.array(z.string())).optional().describe('Optional key property groups'),
     instanceEnumeration: z.array(z.string()).optional().describe('Optional instance enumeration list'),
-    superTerms: z.array(z.string()).optional().describe('Optional parent concepts/aspects this concept specializes. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover available concepts/aspects.'),
+    superTerms: z.array(z.string()).optional().describe('Optional parent concepts/aspects this concept specializes. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
     annotations: z.array(annotationParamSchema).optional(),
 };
 
@@ -36,8 +36,7 @@ For DESCRIPTION MODELING (creating specific instances like "MissionCommander"):
 - Instead use create_concept_instance in a description file
 - Reference existing concepts from vocabularies (e.g., requirement:Stakeholder)
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available concepts/aspects for superTerms.
-If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.
+Auto-resolves simple or qualified superTerms and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.
 
 Example: "concept Stakeholder" defines a TYPE that can have instances.`,
     paramsSchema,
@@ -76,18 +75,41 @@ export const createConceptHandler = async (
         }
         
         // Strip local prefix from resolved superTerms to prevent self-referential qualified names
-        // E.g., "capability:Capability" in the "capability" vocabulary becomes just "Capability"
         const normalizedSuperTerms = resolvedSuperTerms.map(st => stripLocalPrefix(st, vocabulary.prefix));
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        // Collect all referenced prefixes
         const allReferencedNames = [
             ...(normalizedSuperTerms ?? []),
             ...(keys?.flat() ?? []),
             ...(annotations?.map(a => a.property) ?? []),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create concept with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
+
+        // Check which prefixes are missing
+        let existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        // Auto-add missing imports
+        let currentText = text;
+        let currentFilePath = filePath;
+        let currentFileUri = fileUri;
+        
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            // Reload the document to get updated content with new imports
+            const reloaded = await loadVocabularyDocument(ontology);
+            currentText = reloaded.text;
+            currentFilePath = reloaded.filePath;
+            currentFileUri = reloaded.fileUri;
+        }
 
         if (findTerm(vocabulary, name)) {
             return {
@@ -112,21 +134,26 @@ export const createConceptHandler = async (
         const block = hasBlock ? ` [${eol}${enumerationText}${keyText}${indent}]` : '';
         const conceptText = `${annotationsText}${indent}concept ${name}${specializationText}${block}${eol}${eol}`;
 
-        const newContent = insertBeforeClosingBrace(text, conceptText);
-        await writeFileAndNotify(filePath, fileUri, newContent);
+        const newContent = insertBeforeClosingBrace(currentText, conceptText);
+        await writeFileAndNotify(currentFilePath, currentFileUri, newContent);
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
             content: [
                 {
                     type: 'text' as const,
-                    text: `✓ Created concept "${name}"\n\nGenerated code:\n${conceptText.trim()}`,
+                    text: `✓ Created concept "${name}"${notes.length ? '\n' + notes.join(' ') : ''}\n\nGenerated code:\n${conceptText.trim()}`,
                 },
             ],
         };
 
         // Run validation if safe mode is enabled
         const safeMode = preferencesState.getPreferences().safeMode ?? false;
-        return appendValidationIfSafeMode(result, fileUri, safeMode);
+        return appendValidationIfSafeMode(result, currentFileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

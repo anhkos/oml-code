@@ -160,30 +160,211 @@ export async function resolveSymbolName(
     contextFileUri: string,
     expectedTypes?: OmlSymbolType[]
 ): Promise<SymbolResolution> {
-    // If qualified, validate the symbol exists and return import info with the user's chosen prefix
+    // If qualified, validate the symbol exists in the specified vocabulary and return import info
     if (name.includes(':')) {
         const [givenPrefix, symbolName] = name.split(':', 2);
         
-        // Search workspace for the symbol to find which vocabulary it's in
-        const unqualifiedResult = await resolveSymbolName(symbolName, contextFileUri, expectedTypes);
-        
-        if (!unqualifiedResult.success) {
-            // Symbol doesn't exist at all
+        // We need to find the vocabulary that the user is referring to by this prefix
+        // and verify the symbol exists there
+        try {
+            const filePath = fileUriToPath(contextFileUri);
+            if (!fs.existsSync(filePath)) {
+                return { success: false, error: `Context file not found: ${filePath}` };
+            }
+
+            const services = createOmlServices(NodeFileSystem);
+            const document = await getFreshDocument(services, contextFileUri);
+            const root = document.parseResult.value;
+
+            if (!isVocabulary(root) && !isDescription(root) && !isVocabularyBundle(root) && !isDescriptionBundle(root)) {
+                return { success: false, error: 'Context file must be a vocabulary or description' };
+            }
+
+            // Build map of imported prefixes -> namespaces from current file
+            const prefixToNamespace = new Map<string, string>();
+            const currentNamespace = root.namespace.replace(/^<|>$/g, '');
+            const currentPrefix = root.prefix.replace(/^\^/, '');
+            prefixToNamespace.set(currentPrefix, currentNamespace);
+            
+            for (const imp of root.ownedImports || []) {
+                const importedRef = imp.imported?.ref;
+                if (importedRef?.namespace) {
+                    const ns = importedRef.namespace.replace(/^<|>$/g, '');
+                    const prefix = (imp.prefix || importedRef.prefix).replace(/^\^/, '');
+                    prefixToNamespace.set(prefix, ns);
+                }
+            }
+
+            // Get workspace files to find which vocabulary has this prefix
+            let omlFileUris = await queryWorkspaceFiles();
+            if (!omlFileUris) {
+                omlFileUris = scanWorkspaceForOmlFiles(getWorkspaceRoot()).map(uri => ({ uri }));
+            }
+
+            // Find all vocabularies that match the given prefix
+            const matchingVocabularies: Array<{
+                namespace: string;
+                prefix: string;
+                uri: string;
+            }> = [];
+
+            for (const { uri: omlFileUri } of omlFileUris) {
+                try {
+                    const omlDoc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(omlFileUri));
+                    await services.shared.workspace.DocumentBuilder.build([omlDoc], { validation: false });
+
+                    const omlRoot = omlDoc.parseResult.value;
+                    if (!isVocabulary(omlRoot) && !isDescription(omlRoot) && 
+                        !isVocabularyBundle(omlRoot) && !isDescriptionBundle(omlRoot)) {
+                        continue;
+                    }
+
+                    const ontologyPrefix = omlRoot.prefix.replace(/^\^/, '');
+                    if (ontologyPrefix === givenPrefix) {
+                        matchingVocabularies.push({
+                            namespace: omlRoot.namespace.replace(/^<|>$/g, ''),
+                            prefix: ontologyPrefix,
+                            uri: omlFileUri,
+                        });
+                    }
+                } catch { /* skip */ }
+            }
+
+            if (matchingVocabularies.length === 0) {
+                return {
+                    success: false,
+                    error: `No vocabulary found with prefix "${givenPrefix}". Use suggest_oml_symbols to discover available prefixes and symbols.`,
+                };
+            }
+
+            // Now check if the symbol exists in any of these matching vocabularies
+            const symbolMatches: Array<{
+                qualifiedName: string;
+                type: OmlSymbolType;
+                location: string;
+                ontologyPrefix: string;
+                ontologyNamespace: string;
+            }> = [];
+
+            for (const vocab of matchingVocabularies) {
+                try {
+                    const omlDoc = await services.shared.workspace.LangiumDocuments.getOrCreateDocument(URI.parse(vocab.uri));
+                    const omlRoot = omlDoc.parseResult.value;
+                    
+                    const statements = (omlRoot as any).ownedStatements || [];
+                    for (const stmt of statements) {
+                        if (!stmt) continue;
+
+                        const astType = stmt.$type as string;
+                        
+                        // Check main statement name
+                        if (stmt.name === symbolName) {
+                            const omlType = AST_TYPE_TO_OML[astType];
+                            if (omlType) {
+                                // Filter by expected types
+                                let typeMatches = true;
+                                if (expectedTypes && expectedTypes.length > 0) {
+                                    if (expectedTypes.includes('entity' as OmlSymbolType)) {
+                                        typeMatches = ENTITY_TYPES.includes(omlType);
+                                    } else {
+                                        typeMatches = expectedTypes.includes(omlType);
+                                    }
+                                }
+                                
+                                if (typeMatches) {
+                                    symbolMatches.push({
+                                        qualifiedName: `${givenPrefix}:${symbolName}`,
+                                        type: omlType,
+                                        location: vocab.uri,
+                                        ontologyPrefix: givenPrefix,
+                                        ontologyNamespace: vocab.namespace,
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // Check forward/reverse relations from RelationEntity
+                        if (astType === 'RelationEntity') {
+                            if (stmt.forwardRelation?.name === symbolName) {
+                                const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                    expectedTypes.includes('forward_relation') || expectedTypes.includes('unreified_relation');
+                                if (shouldInclude) {
+                                    symbolMatches.push({
+                                        qualifiedName: `${givenPrefix}:${symbolName}`,
+                                        type: 'forward_relation',
+                                        location: vocab.uri,
+                                        ontologyPrefix: givenPrefix,
+                                        ontologyNamespace: vocab.namespace,
+                                    });
+                                }
+                            }
+                            if (stmt.reverseRelation?.name === symbolName) {
+                                const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                    expectedTypes.includes('reverse_relation') || expectedTypes.includes('unreified_relation');
+                                if (shouldInclude) {
+                                    symbolMatches.push({
+                                        qualifiedName: `${givenPrefix}:${symbolName}`,
+                                        type: 'reverse_relation',
+                                        location: vocab.uri,
+                                        ontologyPrefix: givenPrefix,
+                                        ontologyNamespace: vocab.namespace,
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // Check reverse relations from UnreifiedRelation
+                        if (astType === 'UnreifiedRelation') {
+                            if (stmt.reverseRelation?.name === symbolName) {
+                                const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                    expectedTypes.includes('reverse_relation') || expectedTypes.includes('unreified_relation');
+                                if (shouldInclude) {
+                                    symbolMatches.push({
+                                        qualifiedName: `${givenPrefix}:${symbolName}`,
+                                        type: 'reverse_relation',
+                                        location: vocab.uri,
+                                        ontologyPrefix: givenPrefix,
+                                        ontologyNamespace: vocab.namespace,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch { /* skip */ }
+            }
+
+            if (symbolMatches.length === 0) {
+                return {
+                    success: false,
+                    error: `Symbol "${symbolName}" not found in vocabulary with prefix "${givenPrefix}". Check the name or use suggest_oml_symbols to discover available symbols.`,
+                };
+            }
+
+            if (symbolMatches.length > 1) {
+                // Multiple vocabularies with same prefix (shouldn't happen normally)
+                return {
+                    success: false,
+                    error: `Ambiguous: multiple vocabularies with prefix "${givenPrefix}" contain "${symbolName}".`,
+                    suggestions: symbolMatches,
+                };
+            }
+
+            const match = symbolMatches[0];
+            const alreadyImported = prefixToNamespace.has(givenPrefix);
+            
+            return {
+                success: true,
+                qualifiedName: name,
+                prefix: givenPrefix,
+                needsImport: !alreadyImported,
+                importNamespace: alreadyImported ? undefined : match.ontologyNamespace,
+            };
+        } catch (error) {
             return {
                 success: false,
-                error: `Symbol "${symbolName}" not found in workspace. Check the name or use suggest_oml_symbols to discover available symbols.`,
-                suggestions: unqualifiedResult.suggestions,
+                error: `Error resolving qualified symbol: ${error instanceof Error ? error.message : String(error)}`,
             };
         }
-        
-        // Symbol found - return success with the user's chosen prefix, but the correct namespace for import
-        return {
-            success: true,
-            qualifiedName: name, // Keep user's prefix choice (e.g., ent:Actor)
-            prefix: givenPrefix, // User's chosen prefix
-            needsImport: unqualifiedResult.needsImport,
-            importNamespace: unqualifiedResult.importNamespace, // The actual namespace to import
-        };
     }
 
     try {
@@ -257,36 +438,94 @@ export async function resolveSymbolName(
                 // Extract symbols
                 const statements = (omlRoot as any).ownedStatements || [];
                 for (const stmt of statements) {
-                    if (!stmt || !stmt.name) continue;
+                    if (!stmt) continue;
 
                     const astType = stmt.$type as string;
-                    const omlType = AST_TYPE_TO_OML[astType];
-                    if (!omlType) continue;
+                    
+                    // Check main statement name
+                    if (stmt.name && stmt.name === name) {
+                        const omlType = AST_TYPE_TO_OML[astType];
+                        if (omlType) {
+                            // Filter by expected types
+                            let typeMatches = true;
+                            if (expectedTypes && expectedTypes.length > 0) {
+                                if (expectedTypes.includes('entity' as OmlSymbolType)) {
+                                    typeMatches = ENTITY_TYPES.includes(omlType);
+                                } else {
+                                    typeMatches = expectedTypes.includes(omlType);
+                                }
+                            }
 
-                    const symbolName = stmt.name as string;
-                    if (symbolName !== name) continue;
-
-                    // Filter by expected types
-                    if (expectedTypes && expectedTypes.length > 0) {
-                        // Handle 'entity' as special case
-                        if (expectedTypes.includes('entity' as OmlSymbolType)) {
-                            if (!ENTITY_TYPES.includes(omlType)) continue;
-                        } else if (!expectedTypes.includes(omlType)) {
-                            continue;
+                            if (typeMatches) {
+                                const qualifiedName = isLocal ? name : `${effectivePrefix}:${name}`;
+                                matches.push({
+                                    qualifiedName,
+                                    type: omlType,
+                                    location: omlFileUri,
+                                    ontologyPrefix: effectivePrefix,
+                                    ontologyNamespace,
+                                    isLocal,
+                                    alreadyImported,
+                                });
+                            }
                         }
                     }
-
-                    const qualifiedName = isLocal ? symbolName : `${effectivePrefix}:${symbolName}`;
-
-                    matches.push({
-                        qualifiedName,
-                        type: omlType,
-                        location: omlFileUri,
-                        ontologyPrefix: effectivePrefix,
-                        ontologyNamespace,
-                        isLocal,
-                        alreadyImported,
-                    });
+                    
+                    // Check forward/reverse relations from RelationEntity
+                    if (astType === 'RelationEntity') {
+                        if (stmt.forwardRelation?.name === name) {
+                            const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                expectedTypes.includes('forward_relation') || expectedTypes.includes('unreified_relation');
+                            if (shouldInclude) {
+                                const qualifiedName = isLocal ? name : `${effectivePrefix}:${name}`;
+                                matches.push({
+                                    qualifiedName,
+                                    type: 'forward_relation',
+                                    location: omlFileUri,
+                                    ontologyPrefix: effectivePrefix,
+                                    ontologyNamespace,
+                                    isLocal,
+                                    alreadyImported,
+                                });
+                            }
+                        }
+                        if (stmt.reverseRelation?.name === name) {
+                            const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                expectedTypes.includes('reverse_relation') || expectedTypes.includes('unreified_relation');
+                            if (shouldInclude) {
+                                const qualifiedName = isLocal ? name : `${effectivePrefix}:${name}`;
+                                matches.push({
+                                    qualifiedName,
+                                    type: 'reverse_relation',
+                                    location: omlFileUri,
+                                    ontologyPrefix: effectivePrefix,
+                                    ontologyNamespace,
+                                    isLocal,
+                                    alreadyImported,
+                                });
+                            }
+                        }
+                    }
+                    
+                    // Check reverse relations from UnreifiedRelation
+                    if (astType === 'UnreifiedRelation') {
+                        if (stmt.reverseRelation?.name === name) {
+                            const shouldInclude = !expectedTypes || expectedTypes.length === 0 || 
+                                expectedTypes.includes('reverse_relation') || expectedTypes.includes('unreified_relation');
+                            if (shouldInclude) {
+                                const qualifiedName = isLocal ? name : `${effectivePrefix}:${name}`;
+                                matches.push({
+                                    qualifiedName,
+                                    type: 'reverse_relation',
+                                    location: omlFileUri,
+                                    ontologyPrefix: effectivePrefix,
+                                    ontologyNamespace,
+                                    isLocal,
+                                    alreadyImported,
+                                });
+                            }
+                        }
+                    }
                 }
             } catch (err) {
                 console.error(`[resolveSymbolName] Error processing ${omlFileUri}:`, err);

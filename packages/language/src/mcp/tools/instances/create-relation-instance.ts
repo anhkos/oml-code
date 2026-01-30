@@ -1,14 +1,15 @@
 import { z } from 'zod';
-import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral, insertBeforeClosingBrace, stripLocalPrefix, collectImportPrefixes, validateReferencedPrefixes, appendValidationIfSafeMode } from '../common.js';
+import { AnnotationParam, PropertyValueParam, formatAnnotations, formatLiteral, insertBeforeClosingBrace, stripLocalPrefix, collectImportPrefixes, appendValidationIfSafeMode } from '../common.js';
 import { annotationParamSchema, propertyValueParamSchema } from '../schemas.js';
 import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance, OntologyNotFoundError, WrongOntologyTypeError } from '../description-common.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
 import { preferencesState } from '../preferences/preferences-state.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('ABSOLUTE file path to the target description. The file MUST exist - use create_ontology first if needed.'),
     name: z.string().describe('Relation instance name (e.g., "R1_expresses_MC")'),
-    types: z.array(z.string()).optional().describe('Relation entity types this instance conforms to. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
+    types: z.array(z.string()).optional().describe('Relation entity types this instance conforms to. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
     sources: z.array(z.string()).optional().describe('Source instances for "from" clause. Use qualified names (prefix:Name) for instances from other descriptions.'),
     targets: z.array(z.string()).optional().describe('Target instances for "to" clause. Use qualified names (prefix:Name) for instances from other descriptions.'),
     propertyValues: z.array(propertyValueParamSchema).optional().describe('Property value assertions inside the instance block'),
@@ -19,8 +20,7 @@ export const createRelationInstanceTool = {
     name: 'create_relation_instance' as const,
     description: `Creates a relation instance in a description ontology linking source and target instances.
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available relation entity types.
-If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.
+Auto-resolves simple or qualified relation types and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.
 
 Example usage to create: relation instance R1_expresses_MC : requirement:Expresses [ from R1 to MissionCommander ]
 
@@ -99,8 +99,7 @@ export const createRelationInstanceHandler = async (params: {
             }
         }
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, description.prefix);
+        // Collect all referenced prefixes
         const allReferencedNames = [
             ...resolvedTypes,
             ...(sources ?? []).filter(s => s.includes(':')),
@@ -111,8 +110,33 @@ export const createRelationInstanceHandler = async (params: {
             ]),
             ...(annotations ?? []).map(a => a.property),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create relation instance with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
+
+        // Check which prefixes are missing
+        let existingPrefixes = collectImportPrefixes(text, description.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        // Auto-add missing imports
+        let currentText = text;
+        let currentFilePath = filePath;
+        let currentFileUri = fileUri;
+        
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            // Reload the document to get updated content with new imports
+            const reloaded = await loadDescriptionDocument(ontology);
+            currentText = reloaded.text;
+            currentFilePath = reloaded.filePath;
+            currentFileUri = reloaded.fileUri;
+        }
 
         const innerIndent = indent + indent;
         const annotationsText = formatAnnotations(annotations, indent, eol);
@@ -124,16 +148,21 @@ export const createRelationInstanceHandler = async (params: {
         const block = bodyText ? ` [${eol}${bodyText}${indent}]` : '';
 
         const instanceText = `${annotationsText}${indent}relation instance ${name}${typeClause}${block}${eol}${eol}`;
-        const newContent = insertBeforeClosingBrace(text, instanceText);
-        await writeDescriptionAndNotify(filePath, fileUri, newContent);
+        const newContent = insertBeforeClosingBrace(currentText, instanceText);
+        await writeDescriptionAndNotify(currentFilePath, currentFileUri, newContent);
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
-            content: [{ type: 'text' as const, text: `✓ Created relation instance "${name}"` }],
+            content: [{ type: 'text' as const, text: `✓ Created relation instance "${name}"${notes.length ? '\n' + notes.join(' ') : ''}` }],
         };
 
         // Run validation if safe mode is enabled
         const safeMode = preferencesState.getPreferences().safeMode ?? false;
-        return appendValidationIfSafeMode(result, fileUri, safeMode);
+        return appendValidationIfSafeMode(result, currentFileUri, safeMode);
     } catch (error) {
         // Handle specific error types with helpful guidance
         if (error instanceof OntologyNotFoundError) {

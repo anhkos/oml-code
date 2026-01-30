@@ -117,6 +117,51 @@ Higher-level tools for common workflows.
 | `add_to_bundle` | Adds ontologies to a bundle |
 | `smart_create_vocabulary` | Creates a vocabulary with automatic imports |
 | `generate_vocabulary_bundle` | Generates a bundle for vocabularies |
+| `extract_methodology_rules` | Extracts a "Playbook" from vocabulary files for consistent modeling |
+| `enforce_methodology_rules` | Validates descriptions against a methodology playbook |
+
+#### Methodology Playbook System
+
+The playbook tools enable **methodology enforcement** for consistent description modeling:
+
+1. **Extract Rules** (`extract_methodology_rules`): Parses vocabulary files and extracts:
+   - Bidirectional relations (prompts user for preferred direction)
+   - Containment patterns (Container/Contained hierarchies)
+   - Allocation rules
+   - Required properties from restrictions
+   
+2. **Enforce Rules** (`enforce_methodology_rules`): Validates descriptions against the playbook:
+   - Detects wrong relation directions
+   - Suggests corrections with proper reformatting
+   - Can auto-transform assertions to canonical form
+
+Example workflow:
+```bash
+# Step 1: Extract rules (will prompt for decisions on bidirectional relations)
+extract_methodology_rules(
+  vocabularyPaths: ["sierra/base.oml", "sierra/requirement.oml", ...],
+  outputPath: "sierra_playbook.yaml",
+  methodologyName: "Sierra"
+)
+
+# Step 2: Make decisions and re-run
+extract_methodology_rules(
+  vocabularyPaths: [...],
+  outputPath: "sierra_playbook.yaml",
+  decisions: [
+    { subject: "requirement:expresses", chosenOption: "reverse", rationale: "Requirements own the relationship" }
+  ]
+)
+
+# Step 3: Enforce during description authoring
+enforce_methodology_rules(
+  playbookPath: "sierra_playbook.yaml",
+  descriptionPath: "my-system.oml",
+  mode: "validate"  // or "suggest" or "transform"
+)
+```
+
+See `sierra_playbook_example.yaml` for a complete example playbook.
 
 ### Preference Tools
 

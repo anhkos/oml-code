@@ -8,19 +8,19 @@ import {
     formatAnnotations,
     stripLocalPrefix,
     collectImportPrefixes,
-    validateReferencedPrefixes,
     appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { buildDomains, buildRanges } from './text-builders.js';
 import { preferencesState } from '../preferences/preferences-state.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
     name: z.string().describe('Scalar property name to create'),
-    domains: z.array(z.string()).optional().describe('Domain entities. Can use simple names (auto-resolved) or qualified names. Use suggest_oml_symbols with symbolType="entity" to discover.'),
-    ranges: z.array(z.string()).optional().describe('Range scalars (e.g., xsd:string, xsd:integer). Can use simple names (auto-resolved) or qualified names. Use suggest_oml_symbols with symbolType="scalar" to discover.'),
+    domains: z.array(z.string()).optional().describe('Domain entities. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
+    ranges: z.array(z.string()).optional().describe('Range scalars (e.g., xsd:string, xsd:integer). Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
     functional: z.boolean().optional(),
     annotations: z.array(annotationParamSchema).optional(),
 };
@@ -29,9 +29,7 @@ export const createScalarPropertyTool = {
     name: 'create_scalar_property' as const,
     description: `Creates a scalar property with optional domains, ranges, and functional modifier.
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available entities for domains.
-Use suggest_oml_symbols with symbolType="scalar" to discover available scalars for ranges.
-If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.`,
+Auto-resolves simple or qualified domains/ranges and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.`,
     paramsSchema,
 };
 
@@ -67,15 +65,39 @@ export const createScalarPropertyHandler = async (
             }
         }
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        // Collect all referenced prefixes
         const allReferencedNames = [
             ...resolvedDomains,
             ...resolvedRanges,
             ...(annotations?.map(a => a.property) ?? []),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create scalar property with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
+
+        // Check which prefixes are missing
+        let existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        // Auto-add missing imports
+        let currentText = text;
+        let currentFilePath = filePath;
+        let currentFileUri = fileUri;
+        
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            // Reload the document to get updated content with new imports
+            const reloaded = await loadVocabularyDocument(ontology);
+            currentText = reloaded.text;
+            currentFilePath = reloaded.filePath;
+            currentFileUri = reloaded.fileUri;
+        }
 
         if (findTerm(vocabulary, name)) {
             return {
@@ -99,18 +121,23 @@ export const createScalarPropertyHandler = async (
         const block = body ? ` [${eol}${body}${indent}]` : '';
         const propertyText = `${annotationsText}${indent}scalar property ${name}${block}${eol}${eol}`;
 
-        const newContent = insertBeforeClosingBrace(text, propertyText);
-        await writeFileAndNotify(filePath, fileUri, newContent);
+        const newContent = insertBeforeClosingBrace(currentText, propertyText);
+        await writeFileAndNotify(currentFilePath, currentFileUri, newContent);
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Created scalar property "${name}"\n\nGenerated code:\n${propertyText.trim()}` },
+                { type: 'text' as const, text: `✓ Created scalar property "${name}"${notes.length ? '\n' + notes.join(' ') : ''}\n\nGenerated code:\n${propertyText.trim()}` },
             ],
         };
 
         // Run validation if safe mode is enabled
         const safeMode = preferencesState.getPreferences().safeMode ?? false;
-        return appendValidationIfSafeMode(result, fileUri, safeMode);
+        return appendValidationIfSafeMode(result, currentFileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

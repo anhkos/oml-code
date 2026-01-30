@@ -315,6 +315,29 @@ export const suggestOmlSymbolsHandler = async (
                             }
                         }
                     }
+                    
+                    // Also include reverse relations from UnreifiedRelation
+                    if (astType === 'UnreifiedRelation') {
+                        if (stmt.reverseRelation?.name) {
+                            const revName = stmt.reverseRelation.name;
+                            if (!targetType || targetType === 'reverse_relation' || targetType === 'unreified_relation') {
+                                if (!queryLower || revName.toLowerCase().includes(queryLower)) {
+                                    suggestions.push({
+                                        name: revName,
+                                        qualifiedName: isLocal ? revName : `${effectivePrefix}:${revName}`,
+                                        type: 'reverse_relation',
+                                        symbolKind: 6,
+                                        location: omlFileUri,
+                                        ontologyPrefix: effectivePrefix,
+                                        ontologyNamespace,
+                                        alreadyImported,
+                                        isLocal,
+                                        needsImport,
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
             } catch (err) {
                 console.error(`[suggest_oml_symbols] Error processing ${omlFileUri}:`, err);

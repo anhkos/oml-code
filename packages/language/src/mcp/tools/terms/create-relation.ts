@@ -8,19 +8,19 @@ import {
     formatAnnotations,
     stripLocalPrefix,
     collectImportPrefixes,
-    validateReferencedPrefixes,
     appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { buildFromToLines, buildForwardReverse, buildRelationFlags } from './text-builders.js';
 import { preferencesState } from '../preferences/preferences-state.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
     name: z.string().describe('Relation name to create'),
-    sources: z.array(z.string()).optional().describe('Source entities. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
-    targets: z.array(z.string()).optional().describe('Target entities. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover.'),
+    sources: z.array(z.string()).optional().describe('Source entities. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
+    targets: z.array(z.string()).optional().describe('Target entities. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
     reverseName: z.string().optional().describe('Reverse role name'),
     functional: z.boolean().optional(),
     inverseFunctional: z.boolean().optional(),
@@ -36,8 +36,9 @@ export const createRelationTool = {
     name: 'create_relation' as const,
     description: `[DEFAULT - USE THIS FOR ALL RELATIONS] Creates a relation between entities. This is the standard and recommended way to define relationships in OML. ALWAYS use this tool for creating relations unless the user explicitly requests a "relation entity". Relations have from/to entities and an optional reverse name.
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available entities for sources/targets.
-If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.`,
+Auto-resolves simple or qualified sources/targets and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.
+
+Always try to include a reverseName for better readability and navigation in tools, and ask the user to specify any other flags if needed. `,
     paramsSchema,
 };
 
@@ -84,6 +85,7 @@ export const createRelationHandler = async (
         const entityTypes: OmlSymbolType[] = ['concept', 'aspect', 'relation_entity'];
         const resolvedSources: string[] = [];
         const resolvedTargets: string[] = [];
+        const allQualifiedNames: string[] = []; // Track all qualified names for import detection
         
         if (sources && sources.length > 0) {
             for (const src of sources) {
@@ -91,7 +93,9 @@ export const createRelationHandler = async (
                 if (!resolution.success) {
                     return createResolutionErrorResult(resolution, src, 'source entity');
                 }
-                resolvedSources.push(stripLocalPrefix(resolution.qualifiedName!, vocabulary.prefix));
+                const qualified = resolution.qualifiedName!;
+                allQualifiedNames.push(qualified);
+                resolvedSources.push(stripLocalPrefix(qualified, vocabulary.prefix));
             }
         }
         
@@ -101,19 +105,27 @@ export const createRelationHandler = async (
                 if (!resolution.success) {
                     return createResolutionErrorResult(resolution, tgt, 'target entity');
                 }
-                resolvedTargets.push(stripLocalPrefix(resolution.qualifiedName!, vocabulary.prefix));
+                const qualified = resolution.qualifiedName!;
+                allQualifiedNames.push(qualified);
+                resolvedTargets.push(stripLocalPrefix(qualified, vocabulary.prefix));
             }
         }
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        // Collect all referenced prefixes from fully qualified names and annotations
         const allReferencedNames = [
-            ...resolvedSources,
-            ...resolvedTargets,
+            ...allQualifiedNames, // Use original qualified names before stripping
             ...(annotations?.map(a => a.property) ?? []),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create relation with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
+
+        // Check which prefixes are missing (for reporting purposes)
+        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
 
         if (findTerm(vocabulary, name)) {
             return {
@@ -139,12 +151,28 @@ export const createRelationHandler = async (
         const block = body ? ` [${eol}${body}${indent}]` : '';
         const relationText = `${annotationsText}${indent}relation ${name}${block}${eol}${eol}`;
 
+        // Write the relation first
         const newContent = insertBeforeClosingBrace(text, relationText);
         await writeFileAndNotify(filePath, fileUri, newContent);
 
+        // Now call ensureImportsHandler to add missing imports
+        // It will scan the updated file text and find the new prefixes
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                // Log but don't fail - the relation was created successfully
+                console.error('Warning: Failed to auto-add imports:', ensureResult.content);
+            }
+        }
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
+
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Created relation "${name}"\n\nGenerated code:\n${relationText.trim()}` },
+                { type: 'text' as const, text: `✓ Created relation "${name}"${notes.length ? '\n' + notes.join(' ') : ''}\n\nGenerated code:\n${relationText.trim()}` },
             ],
         };
 

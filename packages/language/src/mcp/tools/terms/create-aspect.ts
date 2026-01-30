@@ -7,12 +7,12 @@ import {
     findTerm,
     formatAnnotations,
     collectImportPrefixes,
-    validateReferencedPrefixes,
     appendValidationIfSafeMode,
 } from '../common.js';
 import { annotationParamSchema } from '../schemas.js';
 import { buildKeyLines } from './text-builders.js';
 import { preferencesState } from '../preferences/preferences-state.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
@@ -33,14 +33,38 @@ export const createAspectHandler = async (
     try {
         const { vocabulary, filePath, fileUri, text, eol, indent } = await loadVocabularyDocument(ontology);
 
-        // Validate all referenced prefixes are imported
-        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        // Collect all referenced prefixes
         const allReferencedNames = [
             ...(keys?.flat() ?? []),
             ...(annotations?.map(a => a.property) ?? []),
         ];
-        const prefixError = validateReferencedPrefixes(allReferencedNames, existingPrefixes, 'Cannot create aspect with unresolved references.');
-        if (prefixError) return prefixError;
+        const referencedPrefixes = new Set<string>();
+        for (const ref of allReferencedNames) {
+            if (ref.includes(':')) {
+                referencedPrefixes.add(ref.split(':')[0]);
+            }
+        }
+
+        // Check which prefixes are missing
+        let existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing = [...referencedPrefixes].filter(p => !existingPrefixes.has(p));
+        
+        // Auto-add missing imports
+        let currentText = text;
+        let currentFilePath = filePath;
+        let currentFileUri = fileUri;
+        
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                return ensureResult;
+            }
+            // Reload the document to get updated content with new imports
+            const reloaded = await loadVocabularyDocument(ontology);
+            currentText = reloaded.text;
+            currentFilePath = reloaded.filePath;
+            currentFileUri = reloaded.fileUri;
+        }
 
         if (findTerm(vocabulary, name)) {
             return {
@@ -57,18 +81,23 @@ export const createAspectHandler = async (
         const block = keyText ? ` [${eol}${keyText}${indent}]` : '';
 
         const aspectText = `${annotationsText}${indent}aspect ${name}${block}${eol}${eol}`;
-        const newContent = insertBeforeClosingBrace(text, aspectText);
-        await writeFileAndNotify(filePath, fileUri, newContent);
+        const newContent = insertBeforeClosingBrace(currentText, aspectText);
+        await writeFileAndNotify(currentFilePath, currentFileUri, newContent);
+
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Created aspect "${name}"\n\nGenerated code:\n${aspectText.trim()}` },
+                { type: 'text' as const, text: `✓ Created aspect "${name}"${notes.length ? '\n' + notes.join(' ') : ''}\n\nGenerated code:\n${aspectText.trim()}` },
             ],
         };
 
         // Run validation if safe mode is enabled
         const safeMode = preferencesState.getPreferences().safeMode ?? false;
-        return appendValidationIfSafeMode(result, fileUri, safeMode);
+        return appendValidationIfSafeMode(result, currentFileUri, safeMode);
     } catch (error) {
         return {
             isError: true,

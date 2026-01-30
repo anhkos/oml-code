@@ -9,7 +9,7 @@ import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 const paramsSchema = {
     ontology: z.string().describe('ABSOLUTE file path to a DESCRIPTION ontology file. Use the full path from the open file, e.g., c:/Users/.../file.oml'),
     name: z.string().describe('Instance identifier/name (e.g., "MissionCommander", "R1", "FireFighter"). This is the OML ID for the instance.'),
-    types: z.array(z.string()).optional().describe('Concept/aspect types this instance conforms to. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover available types.'),
+    types: z.array(z.string()).optional().describe('Concept/aspect types this instance conforms to. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
     propertyValues: z.array(propertyValueParamSchema).optional().describe('Property value assertions inside the instance block [...]. Includes both scalar properties (use literalValues) and relation assertions (use referencedValues). Example: [{"property": "base:description", "literalValues": [{"type": "quoted", "value": "Mission Commander"}]}, {"property": "requirement:isExpressedBy", "referencedValues": ["Operator"]}]'),
     annotations: z.array(annotationParamSchema).optional().describe('Annotations that appear BEFORE the instance declaration (e.g., @dc:title). For properties INSIDE the instance block, use propertyValues instead.'),
 };
@@ -18,10 +18,26 @@ export const createConceptInstanceTool = {
     name: 'create_concept_instance' as const,
     description: `Creates a concept instance in a DESCRIPTION ontology. Use this for description modeling - creating specific individuals that are instances of concepts defined in vocabularies.
 
+⚠️ REQUIRED WORKFLOW - FOLLOW THESE STEPS:
+
+1. **CHECK DESCRIPTION SCHEMAS FIRST** using route_instance tool:
+   - Determines which file should contain this type
+   - Shows what properties are typically required
+   - Validates the instance will conform to methodology rules
+
+2. **VALIDATE REFERENCED INSTANCES**:
+   - If adding relations (e.g., requirement:isExpressedBy), ensure target instances exist
+   - Verify target instances are of the correct type (e.g., stakeholder, not Element)
+   - Read the description file first to see available instances
+
+3. **PROBE USER FOR MISSING REQUIRED PROPERTIES**:
+   - If schemas indicate required properties (like isExpressedBy), ASK THE USER
+   - Do NOT assume or make up values
+   - Example: "Which stakeholder expresses this requirement? (MissionCommander, SafetyOfficer, or other?)"
+
 IMPORTANT: This tool is for DESCRIPTION files only. Instances are specific individuals (like "FireFighter", "R1"), not type definitions.
 
-TIP: Use suggest_oml_symbols with symbolType="entity" to discover available concept/aspect types.
-If a simple name (without prefix) matches multiple symbols, you'll be prompted to disambiguate.
+Auto-resolves simple or qualified types and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.
 
 OML Instance Syntax:
   instance <name> : <type1>, <type2> [
@@ -129,9 +145,9 @@ export const createConceptInstanceHandler = async (params: {
                             isError: true,
                             content: [{
                                 type: 'text' as const,
-                                text: `❌ Type "${t}" not found in workspace.\n\n` +
+                                text: `Type "${t}" not found in workspace.\n\n` +
                                     `The type you specified does not exist in any imported vocabulary.\n\n` +
-                                    `💡 SUGGESTIONS:\n` +
+                                    `SUGGESTIONS:\n` +
                                     `  1. Use suggest_oml_symbols(uri="${ontology}", symbolType="concept") to discover available types\n` +
                                     `  2. Check if you need to add_import for the vocabulary containing this type\n` +
                                     `  3. Verify the spelling and prefix of the type name\n\n` +
@@ -148,7 +164,8 @@ export const createConceptInstanceHandler = async (params: {
         }
 
         // Verify properties exist as well
-        const propertyTypes: OmlSymbolType[] = ['scalar_property', 'annotation_property'];
+        // Properties can be scalar properties, annotation properties, OR relations (unreified, forward, reverse)
+        const propertyTypes: OmlSymbolType[] = ['scalar_property', 'annotation_property', 'unreified_relation', 'forward_relation', 'reverse_relation'];
         const verifiedProperties: string[] = [];
         
         if (params.propertyValues && params.propertyValues.length > 0) {
@@ -166,9 +183,10 @@ export const createConceptInstanceHandler = async (params: {
                             text: `❌ Property "${pv.property}" not found in workspace.\n\n` +
                                 `The property you specified does not exist in any imported vocabulary.\n\n` +
                                 `💡 SUGGESTIONS:\n` +
-                                `  1. Use suggest_oml_symbols(uri="${ontology}", symbolType="scalar_property") to discover available properties\n` +
-                                `  2. Check if you need to add_import for the vocabulary containing this property\n` +
-                                `  3. For relations, the property might be a forward/reverse relation name\n\n` +
+                                `  1. Use suggest_oml_symbols(uri="${ontology}", symbolType="scalar_property") to discover scalar properties\n` +
+                                `  2. Use suggest_oml_symbols(uri="${ontology}", symbolType="unreified_relation") to discover relations (including reverse relations)\n` +
+                                `  3. Check if you need to add_import for the vocabulary containing this property/relation\n` +
+                                `  4. Verify the spelling and prefix of the name\n\n` +
                                 `This verification ensures you're using real properties from your ontologies.`
                         }],
                     };

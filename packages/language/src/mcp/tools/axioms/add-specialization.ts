@@ -1,21 +1,18 @@
 import { z } from 'zod';
-import { loadVocabularyDocument, writeFileAndNotify, findTerm, detectIndentation, collectImportPrefixes, stripLocalPrefix, appendValidationIfSafeMode } from '../common.js';
+import { loadVocabularyDocument, writeFileAndNotify, findTerm, collectImportPrefixes, stripLocalPrefix, appendValidationIfSafeMode } from '../common.js';
 import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
 import { preferencesState } from '../preferences/preferences-state.js';
+import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
 const paramsSchema = {
     ontology: z.string().describe('File path or file:// URI to the target vocabulary'),
     term: z.string().describe('Term to specialize'),
-    superTerms: z.array(z.string()).nonempty().describe('Super terms to add. Can use simple names (auto-resolved) or qualified names (prefix:Name). Use suggest_oml_symbols with symbolType="entity" to discover available terms.'),
-    importStatement: z.string().optional().describe('[Optional] Import statement to add if the super term requires a new import. Use "extends <namespace> as prefix" syntax (NOT "import"). Usually not needed when using symbol resolution.'),
+    superTerms: z.array(z.string()).nonempty().describe('Super terms to add. Simple or qualified names are auto-resolved; imports are added automatically. Use suggest_oml_symbols only if you need to discover names when resolution fails.'),
 };
 
 export const addSpecializationTool = {
     name: 'add_specialization' as const,
-    description: `Adds super terms to a term's specialization clause.
-
-TIP: Use suggest_oml_symbols with symbolType="entity" to find available concepts/aspects first.
-Simple names (without prefix) are auto-resolved. If ambiguous, you'll be prompted to disambiguate.`,
+    description: `Adds super terms to a term's specialization clause. Names are auto-resolved and missing imports are added. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover available terms.`,
     paramsSchema,
 };
 
@@ -35,9 +32,8 @@ function extractSpecialization(termText: string) {
     return { exists: true, start: idx, end, items } as const;
 }
 
-export const addSpecializationHandler = async ({ ontology, term, superTerms, importStatement }: { ontology: string; term: string; superTerms: string[]; importStatement?: string }) => {
+export const addSpecializationHandler = async ({ ontology, term, superTerms }: { ontology: string; term: string; superTerms: string[] }) => {
     try {
-        const needsImport = importStatement && importStatement.trim().length > 0;
         const { vocabulary, filePath, fileUri, text } = await loadVocabularyDocument(ontology);
         const node = findTerm(vocabulary, term);
 
@@ -53,60 +49,73 @@ export const addSpecializationHandler = async ({ ontology, term, superTerms, imp
         // Resolve superTerms - support both simple names and qualified names
         const entityTypes: OmlSymbolType[] = ['concept', 'aspect', 'relation_entity'];
         const resolvedSuperTerms: string[] = [];
+        const allQualifiedNames: string[] = []; // Track original qualified names for import detection
         
         for (const st of superTerms) {
             const resolution = await resolveSymbolName(st, fileUri, entityTypes);
             if (!resolution.success) {
                 return createResolutionErrorResult(resolution, st, 'super term');
             }
-            resolvedSuperTerms.push(stripLocalPrefix(resolution.qualifiedName!, vocabulary.prefix));
+            const qualified = resolution.qualifiedName!;
+            allQualifiedNames.push(qualified);
+            resolvedSuperTerms.push(stripLocalPrefix(qualified, vocabulary.prefix));
         }
 
-        const importPrefixes = collectImportPrefixes(text, vocabulary.prefix);
-        const importPrefix = needsImport ? importStatement?.match(/\bas\s+([^\s{]+)/)?.[1] : undefined;
-        const missing: string[] = [];
-        
-        // Get the local prefix (handle both escaped and unescaped forms)
+        // Collect all referenced prefixes from the original qualified names
+        const referencedPrefixes = new Set<string>();
         const localPrefix = vocabulary.prefix;
         const unescapedLocalPrefix = localPrefix.startsWith('^') ? localPrefix.slice(1) : localPrefix;
-
+        
+        for (const st of allQualifiedNames) {
+            if (st.includes(':')) {
+                const prefix = st.split(':')[0];
+                const unescapedPrefix = prefix.startsWith('^') ? prefix.slice(1) : prefix;
+                
+                // Skip if this is a self-reference
+                if (unescapedPrefix !== unescapedLocalPrefix) {
+                    referencedPrefixes.add(prefix);
+                }
+            }
+        }
+        
+        // Check local term references
         for (const st of resolvedSuperTerms) {
             if (st.includes(':')) {
                 const prefix = st.split(':')[0];
-                // Handle escaped prefix comparison (e.g., ^capability vs capability)
                 const unescapedPrefix = prefix.startsWith('^') ? prefix.slice(1) : prefix;
                 
-                // Skip validation if this is a self-reference (using the local vocabulary's own prefix)
+                // Check that local references exist
                 if (unescapedPrefix === unescapedLocalPrefix) {
-                    // This is a self-reference like "capability:Capability" in the capability vocabulary
-                    // Check that the local term actually exists
                     const localName = st.split(':')[1];
                     const local = findTerm(vocabulary, localName);
                     if (!local) {
-                        missing.push(`Super term "${st}" references local term "${localName}" which doesn't exist. Create it first.`);
+                        return {
+                            isError: true,
+                            content: [
+                                { type: 'text' as const, text: `Super term "${st}" references local term "${localName}" which doesn't exist. Create it first.` },
+                            ],
+                        };
                     }
-                    continue;
-                }
-                
-                if (!importPrefixes.has(prefix) && !importPrefixes.has(unescapedPrefix) && importPrefix !== prefix && importPrefix !== unescapedPrefix) {
-                    missing.push(`Super term "${st}" requires an import for prefix "${prefix}". Provide importStatement or add an import first.`);
                 }
             } else {
                 const local = findTerm(vocabulary, st);
                 if (!local) {
-                    missing.push(`Super term "${st}" not found locally. Qualify it or create it first.`);
+                    return {
+                        isError: true,
+                        content: [
+                            { type: 'text' as const, text: `Super term "${st}" not found locally. Qualify it or create it first.` },
+                        ],
+                    };
                 }
             }
         }
 
-        if (missing.length) {
-            return {
-                isError: true,
-                content: [
-                    { type: 'text' as const, text: missing.join('\n') },
-                ],
-            };
-        }
+        // Check which prefixes are missing (for reporting purposes)
+        const existingPrefixes = collectImportPrefixes(text, vocabulary.prefix);
+        const missing = [...referencedPrefixes].filter(p => {
+            const unescapedP = p.startsWith('^') ? p.slice(1) : p;
+            return !existingPrefixes.has(p) && !existingPrefixes.has(unescapedP);
+        });
 
         const termText = text.slice(node.$cstNode.offset, node.$cstNode.end);
         const spec = extractSpecialization(termText);
@@ -141,62 +150,29 @@ export const addSpecializationHandler = async ({ ontology, term, superTerms, imp
             }
         }
 
-        let newContent = text.slice(0, node.$cstNode.offset) + updatedTermText + text.slice(node.$cstNode.end);
+        const newContent = text.slice(0, node.$cstNode.offset) + updatedTermText + text.slice(node.$cstNode.end);
 
-        // If an import statement was provided from the suggestion, add it if missing
-        if (needsImport) {
-            let trimmedImport = importStatement!.trim();
-            
-            // Fix common LLM mistake: "import" is not valid OML, should be "extends" for vocabularies
-            if (trimmedImport.startsWith('import ')) {
-                trimmedImport = trimmedImport.replace(/^import\s+/, 'extends ');
-            }
-            
-            if (!newContent.includes(trimmedImport)) {
-                const eol = newContent.includes('\r\n') ? '\r\n' : '\n';
-                const indent = detectIndentation(newContent);
-                const lines = newContent.split(/\r?\n/);
+        // Write the specialization first
+        await writeFileAndNotify(filePath, fileUri, newContent);
 
-                // Find insertion point: after opening brace and any existing imports
-                let insertLineIndex = -1;
-                let inOntology = false;
-                for (let i = 0; i < lines.length; i++) {
-                    const trimmed = lines[i].trim();
-                    if (trimmed.includes('vocabulary') || trimmed.includes('description') || trimmed.includes('bundle')) {
-                        inOntology = true;
-                    }
-                    if (inOntology && trimmed.includes('{')) {
-                        insertLineIndex = i + 1;
-                        let j = insertLineIndex;
-                        while (j < lines.length) {
-                            const nextTrimmed = lines[j].trim();
-                            if (nextTrimmed.startsWith('extends') || nextTrimmed.startsWith('uses') || nextTrimmed.startsWith('includes')) {
-                                insertLineIndex = j + 1;
-                                j++;
-                            } else if (nextTrimmed === '') {
-                                j++;
-                            } else {
-                                break;
-                            }
-                        }
-                        insertLineIndex = j;
-                        break;
-                    }
-                }
-
-                if (insertLineIndex >= 0) {
-                    const formattedImport = `${indent}${trimmedImport}`;
-                    lines.splice(insertLineIndex, 0, formattedImport);
-                    newContent = lines.join(eol);
-                }
+        // Now call ensureImportsHandler to add missing imports
+        // It will scan the updated file text and find the new prefixes
+        if (missing.length > 0) {
+            const ensureResult = await ensureImportsHandler({ ontology });
+            if (ensureResult.isError) {
+                // Log but don't fail - the specialization was added successfully
+                console.error('Warning: Failed to auto-add imports:', ensureResult.content);
             }
         }
 
-        await writeFileAndNotify(filePath, fileUri, newContent);
+        const notes: string[] = [];
+        if (missing.length > 0) {
+            notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
+        }
 
         const result = {
             content: [
-                { type: 'text' as const, text: `✓ Added specialization to term "${term}"` },
+                { type: 'text' as const, text: `✓ Added specialization to term "${term}"${notes.length ? '\n' + notes.join(' ') : ''}` },
             ],
         };
 

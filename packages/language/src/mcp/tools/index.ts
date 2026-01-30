@@ -10,6 +10,11 @@ import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-im
 import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
 import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './methodology/smart-create-vocabulary.js';
 import { generateVocabularyBundleHandler, generateVocabularyBundleTool } from './methodology/generate-vocabulary-bundle.js';
+import { clarifyMethodologyPreferencesHandler, clarifyMethodologyPreferencesTool } from './methodology/clarify-methodology-preferences.js';
+import { extractMethodologyRulesHandler, extractMethodologyRulesTool } from './methodology/extract-methodology-rules.js';
+import { enforceMethodologyRulesHandler, enforceMethodologyRulesTool } from './methodology/enforce-methodology-rules.js';
+import { extractDescriptionSchemasHandler, extractDescriptionSchemasTool } from './methodology/extract-description-schemas.js';
+import { routeInstanceHandler, routeInstanceTool } from './methodology/route-instance.js';
 import { suggestOmlSymbolsTool, analyzeImpactTool, analyzeImpactHandler } from './query/index.js';
 import { suggestOmlSymbolsHandler } from './query/suggest-oml-symbols.js';
 import { preferencesTools } from './preferences/index.js';
@@ -27,6 +32,11 @@ const coreTools: ToolRegistration[] = [
     { tool: addToBundleTool, handler: addToBundleHandler },
     { tool: smartCreateVocabularyTool, handler: smartCreateVocabularyHandler },
     { tool: generateVocabularyBundleTool, handler: generateVocabularyBundleHandler },
+    { tool: clarifyMethodologyPreferencesTool, handler: clarifyMethodologyPreferencesHandler },
+    { tool: extractMethodologyRulesTool, handler: extractMethodologyRulesHandler },
+    { tool: enforceMethodologyRulesTool, handler: enforceMethodologyRulesHandler },
+    { tool: extractDescriptionSchemasTool, handler: extractDescriptionSchemasHandler },
+    { tool: routeInstanceTool, handler: routeInstanceHandler },
     ...preferencesTools,
 ];
 
@@ -89,6 +99,11 @@ export const phase3Tools: ToolRegistration[] = pickTools([
     'add_to_bundle',
     'smart_create_vocabulary',
     'generate_vocabulary_bundle',
+    'clarify_methodology_preferences',
+    'extract_methodology_rules',
+    'enforce_methodology_rules',
+    'extract_description_schemas',
+    'route_instance',
 ]);
 
 export const allTools: ToolRegistration[] = [
