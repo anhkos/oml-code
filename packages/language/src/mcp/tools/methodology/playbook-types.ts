@@ -162,6 +162,80 @@ export interface AppliesTo {
 }
 
 /**
+ * Naming pattern for auto-generating instance names.
+ */
+export interface NamingPattern {
+    /** Prefix for the name (e.g., "R" for R1, R2, ...) */
+    prefix: string;
+    
+    /** Counter style: 'number' (1,2,3), 'padded' (001,002), 'alpha' (A,B,C) */
+    counterStyle?: 'number' | 'padded' | 'alpha';
+    
+    /** Padding width for 'padded' style (default: 3) */
+    paddingWidth?: number;
+    
+    /** Starting number (default: 1) */
+    startFrom?: number;
+    
+    /** Optional suffix (e.g., "_req" for R1_req) */
+    suffix?: string;
+}
+
+/**
+ * Property mapping for auto-populating instance properties.
+ * Maps user-provided semantic fields to OML properties.
+ */
+export interface PropertyMapping {
+    /** OML property name (e.g., "base:description") */
+    property: string;
+    
+    /** Semantic field name that user provides (e.g., "name", "text", "target") */
+    mapsFrom: string;
+    
+    /** Is this a literal (scalar) or reference (relation)? */
+    valueType: 'literal' | 'reference';
+    
+    /** For literals: the scalar type (default: string/quoted) */
+    literalType?: 'quoted' | 'integer' | 'decimal' | 'double' | 'boolean';
+    
+    /** Is this mapping required? */
+    required?: boolean;
+    
+    /** Human-readable description of what this field means */
+    description?: string;
+    
+    /** Default value if not provided */
+    defaultValue?: string;
+}
+
+/**
+ * Template for creating instances of a specific type.
+ * Defines naming conventions and property mappings.
+ */
+export interface InstanceTemplate {
+    /** Unique identifier for this template */
+    id: string;
+    
+    /** What concept type(s) this template applies to */
+    appliesTo: AppliesTo;
+    
+    /** Naming pattern for auto-generating instance names */
+    naming?: NamingPattern;
+    
+    /** Property mappings from semantic fields to OML properties */
+    propertyMappings: PropertyMapping[];
+    
+    /** Human-readable description of this template */
+    description?: string;
+    
+    /** Example usage */
+    example?: {
+        input: Record<string, string>;
+        output: string;
+    };
+}
+
+/**
  * Defines a constraint on a property.
  */
 export interface PropertyConstraint {
@@ -259,6 +333,9 @@ export interface MethodologyPlaybook {
     
     /** Description-level schemas (NEW) */
     descriptions?: Record<string, DescriptionSchema>;
+    
+    /** Instance templates for naming and property mappings */
+    instanceTemplates?: InstanceTemplate[];
 }
 
 /**

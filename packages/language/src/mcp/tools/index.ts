@@ -15,6 +15,10 @@ import { extractMethodologyRulesHandler, extractMethodologyRulesTool } from './m
 import { enforceMethodologyRulesHandler, enforceMethodologyRulesTool } from './methodology/enforce-methodology-rules.js';
 import { extractDescriptionSchemasHandler, extractDescriptionSchemasTool } from './methodology/extract-description-schemas.js';
 import { routeInstanceHandler, routeInstanceTool } from './methodology/route-instance.js';
+import { updatePlaybookHandler, updatePlaybookTool } from './methodology/update-playbook.js';
+import { listPlaybookConstraintsHandler, listPlaybookConstraintsTool } from './methodology/list-playbook-constraints.js';
+import { prepareInstanceHandler, prepareInstanceTool } from './methodology/prepare-instance.js';
+import { analyzeMethodologyRequestHandler, analyzeMethodologyRequestTool } from './methodology/analyze-request.js';
 import { suggestOmlSymbolsTool, analyzeImpactTool, analyzeImpactHandler } from './query/index.js';
 import { suggestOmlSymbolsHandler } from './query/suggest-oml-symbols.js';
 import { preferencesTools } from './preferences/index.js';
@@ -37,6 +41,10 @@ const coreTools: ToolRegistration[] = [
     { tool: enforceMethodologyRulesTool, handler: enforceMethodologyRulesHandler },
     { tool: extractDescriptionSchemasTool, handler: extractDescriptionSchemasHandler },
     { tool: routeInstanceTool, handler: routeInstanceHandler },
+    { tool: updatePlaybookTool, handler: updatePlaybookHandler },
+    { tool: listPlaybookConstraintsTool, handler: listPlaybookConstraintsHandler },
+    { tool: prepareInstanceTool, handler: prepareInstanceHandler },
+    { tool: analyzeMethodologyRequestTool, handler: analyzeMethodologyRequestHandler },
     ...preferencesTools,
 ];
 
@@ -104,6 +112,10 @@ export const phase3Tools: ToolRegistration[] = pickTools([
     'enforce_methodology_rules',
     'extract_description_schemas',
     'route_instance',
+    'update_playbook',
+    'list_playbook_constraints',
+    'prepare_instance',
+    'analyze_methodology_request',
 ]);
 
 export const allTools: ToolRegistration[] = [

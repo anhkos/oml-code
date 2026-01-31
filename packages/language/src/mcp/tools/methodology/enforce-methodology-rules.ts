@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
-import yaml from 'js-yaml';
 import { URI } from 'langium';
 import { NodeFileSystem } from 'langium/node';
 import { createOmlServices } from '../../../oml-module.js';
@@ -27,6 +26,10 @@ import {
     validatePropertyConstraint, 
     isTypeAllowed 
 } from './rule-engine.js';
+import {
+    resolvePlaybookPath,
+    loadPlaybook as loadPlaybookHelper,
+} from './playbook-helpers.js';
 
 export const enforceMethodologyRulesTool = {
     name: 'enforce_methodology_rules' as const,
@@ -69,26 +72,11 @@ RETURNS:
 };
 
 /**
- * Load and parse the playbook YAML file.
- */
-function loadPlaybook(playbookPath: string): MethodologyPlaybook {
-    const resolvedPath = resolveWorkspacePath(playbookPath);
-    
-    if (!fs.existsSync(resolvedPath)) {
-        throw new Error(`Playbook not found: ${resolvedPath}`);
-    }
-    
-    const content = fs.readFileSync(resolvedPath, 'utf-8');
-    return yaml.load(content) as MethodologyPlaybook;
-}
-
-/**
  * Auto-detect playbook path from methodology name.
  * Walks up directory tree looking for *_playbook.yaml files.
  * Returns the first (nearest/most specific) one found.
  */
 function detectPlaybookPath(methodologyName: string, startFromPath?: string): string | null {
-    const path = require('path');
     const methodologyLower = methodologyName.toLowerCase();
     
     // Start from the description file's directory or workspace root
@@ -207,17 +195,53 @@ interface InstanceInfo {
 }
 
 /**
+ * Map from import prefix alias to canonical prefix.
+ * Example: "ent" -> "entity" for `uses <.../entity#> as ent`
+ */
+interface ImportPrefixMap {
+    [alias: string]: string;
+}
+
+/**
  * Parse a description and extract all property assertions.
+ */
+/**
+ * Scan workspace for OML files.
+ */
+function scanWorkspaceForOmlFiles(workspaceRoot: string): string[] {
+    const omlFiles: string[] = [];
+    function scanDir(dir: string) {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'build') {
+                    scanDir(fullPath);
+                } else if (entry.isFile() && entry.name.endsWith('.oml')) {
+                    omlFiles.push(fullPath);
+                }
+            }
+        } catch { /* skip unreadable */ }
+    }
+    scanDir(workspaceRoot);
+    return omlFiles;
+}
+
+/**
+ * Parse a description and extract all property assertions.
+ * Loads workspace context for proper reference resolution.
  */
 async function parseDescription(descriptionPath?: string, descriptionCode?: string): Promise<{
     assertions: PropertyAssertion[];
     instances: InstanceInfo[];
     sourceCode: string;
+    importPrefixMap: ImportPrefixMap;
 }> {
     const services = createOmlServices(NodeFileSystem).Oml;
     
     let content: string;
     let uri: URI;
+    let workspaceRoot: string | undefined;
     
     if (descriptionPath) {
         // For absolute paths, use them directly without resolveWorkspacePath
@@ -233,6 +257,18 @@ async function parseDescription(descriptionPath?: string, descriptionCode?: stri
         }
         content = fs.readFileSync(resolvedPath, 'utf-8');
         uri = URI.file(resolvedPath);
+        
+        // Try to find workspace root (look for src/oml pattern or package.json)
+        workspaceRoot = path.dirname(resolvedPath);
+        while (workspaceRoot && workspaceRoot !== path.dirname(workspaceRoot)) {
+            if (fs.existsSync(path.join(workspaceRoot, 'package.json')) ||
+                fs.existsSync(path.join(workspaceRoot, 'catalog.xml')) ||
+                workspaceRoot.endsWith('src')) {
+                break;
+            }
+            workspaceRoot = path.dirname(workspaceRoot);
+        }
+        console.error(`[parseDescription] Workspace root: ${workspaceRoot}`);
     } else if (descriptionCode) {
         content = descriptionCode;
         uri = URI.parse('memory://temp-description.oml');
@@ -240,8 +276,75 @@ async function parseDescription(descriptionPath?: string, descriptionCode?: stri
         throw new Error('Either descriptionPath or descriptionCode must be provided');
     }
     
-    const document = services.shared.workspace.LangiumDocumentFactory.fromString(content, uri);
-    await services.shared.workspace.DocumentBuilder.build([document], { validation: false });
+    // OPTIMIZATION: Only load imported dependencies, not entire workspace
+    // First, do a quick parse to extract imports
+    const langiumDocs = services.shared.workspace.LangiumDocuments;
+    const tempDoc = services.shared.workspace.LangiumDocumentFactory.fromString(content, uri);
+    const tempRoot = tempDoc.parseResult.value;
+    
+    const documentsToLoad: URI[] = [uri];
+    
+    // Extract namespace URIs from imports
+    if (isDescription(tempRoot)) {
+        const importedNamespaces = (tempRoot as Description).ownedImports
+            ?.map(imp => imp.imported?.$refText?.replace(/^<|>$/g, ''))
+            .filter(ns => ns) as string[];
+        
+        console.error(`[parseDescription] Description imports ${importedNamespaces.length} vocabularies:`);
+        for (const ns of importedNamespaces) {
+            console.error(`[parseDescription]   - ${ns}`);
+        }
+        
+        // Find files matching these namespaces (only if we have a workspace root)
+        if (workspaceRoot && importedNamespaces.length > 0) {
+            const omlFiles = scanWorkspaceForOmlFiles(workspaceRoot);
+            console.error(`[parseDescription] Scanning ${omlFiles.length} OML files in workspace root: ${workspaceRoot}`);
+            for (const omlFile of omlFiles) {
+                try {
+                    const fileContent = fs.readFileSync(omlFile, 'utf-8');
+                    // Quick regex check for namespace (avoid parsing all files)
+                    for (const ns of importedNamespaces) {
+                        if (fileContent.includes(ns)) {
+                            documentsToLoad.push(URI.file(omlFile));
+                            console.error(`[parseDescription] Including imported file: ${omlFile} (matches ${ns})`);
+                            break;
+                        }
+                    }
+                } catch { /* skip unreadable files */ }
+            }
+        } else {
+            console.error(`[parseDescription] WARNING: No workspace root found, cannot load imported vocabularies`);
+        }
+    }
+    
+    console.error(`[parseDescription] Loading ${documentsToLoad.length} documents:`);
+    for (const docUri of documentsToLoad) {
+        console.error(`[parseDescription]   - ${docUri.toString()}`);
+    }
+    
+    // Load only the description + its direct imports
+    const loadedDocs = [];
+    for (const docUri of documentsToLoad) {
+        try {
+            const doc = await langiumDocs.getOrCreateDocument(docUri);
+            loadedDocs.push(doc);
+            console.error(`[parseDescription] Loaded: ${docUri.path} (parse errors: ${doc.parseResult.parserErrors.length})`);
+        } catch (e) {
+            console.error(`[parseDescription] FAILED to load ${docUri}: ${e}`);
+        }
+    }
+    
+    // Build just these documents (much faster than full workspace)
+    console.error(`[parseDescription] Building ${loadedDocs.length} documents...`);
+    await services.shared.workspace.DocumentBuilder.build(loadedDocs, { validation: false });
+    console.error(`[parseDescription] Build complete`);
+    
+    // Get our main document
+    const document = langiumDocs.getDocument(uri);
+    if (!document) {
+        throw new Error('Failed to load description document');
+    }
+    console.error(`[parseDescription] Main document retrieved: ${uri.path}`);
     
     const root = document.parseResult.value;
     if (!isDescription(root)) {
@@ -251,19 +354,93 @@ async function parseDescription(descriptionPath?: string, descriptionCode?: stri
     const description = root as Description;
     const assertions: PropertyAssertion[] = [];
     const instances: InstanceInfo[] = [];
+    const importPrefixMap: ImportPrefixMap = {};
+    
+    // Build import prefix map for alias resolution
+    // This maps user aliases (e.g., "ent") to canonical prefixes (e.g., "entity")
+    for (const imp of description.ownedImports || []) {
+        console.error(`[parseDescription] Import: prefix="${imp.prefix}", kind="${imp.kind}"`);
+        console.error(`[parseDescription]   imported.$refText: ${imp.imported?.$refText}`);
+        console.error(`[parseDescription]   imported.ref: ${imp.imported?.ref}`);
+        console.error(`[parseDescription]   imported.ref?.prefix: ${(imp.imported?.ref as any)?.prefix}`);
+        
+        if (!imp.prefix) {
+            continue;
+        }
+        
+        // Try to get canonical prefix from resolved reference
+        let canonicalPrefix: string | undefined;
+        const importedOntology = imp.imported?.ref as { prefix?: string } | undefined;
+        canonicalPrefix = importedOntology?.prefix;
+        
+        // If reference not resolved, try to extract from namespace IRI
+        // Namespace format: <https://example.com/path/vocabname#> -> vocabname
+        if (!canonicalPrefix && imp.imported?.$refText) {
+            const namespace = imp.imported.$refText;
+            // Try extracting prefix from namespace pattern like "<http://.../<prefix>#>" or "<http://.../<prefix>/>"
+            // The namespace includes angle brackets: <https://...entity#>
+            const match = namespace.match(/\/([^/#]+)[#/]>?$/);
+            if (match) {
+                canonicalPrefix = match[1];
+                console.error(`[parseDescription] Extracted canonical prefix "${canonicalPrefix}" from namespace: ${namespace}`);
+            } else {
+                console.error(`[parseDescription] Failed to extract prefix from namespace: ${namespace}`);
+            }
+        }
+        
+        if (canonicalPrefix && canonicalPrefix !== imp.prefix) {
+            importPrefixMap[imp.prefix] = canonicalPrefix;
+            console.error(`[parseDescription] Import alias: ${imp.prefix} -> ${canonicalPrefix}`);
+        }
+    }
+    
+    console.error(`[parseDescription] Import prefix map: ${JSON.stringify(importPrefixMap)}`);
     
     console.error(`[parseDescription] Processing ${description.ownedStatements?.length || 0} statements`);
+    
+    // Helper to resolve import alias in a qualified name (e.g., "ent:Actor" -> "entity:Actor")
+    const resolveAlias = (qualifiedName: string): string => {
+        const colonIndex = qualifiedName.indexOf(':');
+        if (colonIndex === -1) return qualifiedName;
+        const prefix = qualifiedName.substring(0, colonIndex);
+        const name = qualifiedName.substring(colonIndex + 1);
+        const canonicalPrefix = importPrefixMap[prefix];
+        return canonicalPrefix ? `${canonicalPrefix}:${name}` : qualifiedName;
+    };
+    
+    // Helper to get canonical qualified name from a resolved concept reference
+    const getCanonicalType = (typeRef: { ref?: { name?: string; $container?: { prefix?: string } }; $refText?: string }): string => {
+        const sourceText = typeRef.$refText || 'Unknown';
+        console.error(`[getCanonicalType] sourceText="${sourceText}", ref=${typeRef.ref ? 'RESOLVED' : 'null'}`);
+        
+        // Try to get canonical name from resolved reference
+        if (typeRef.ref?.name && typeRef.ref.$container) {
+            const vocabPrefix = (typeRef.ref.$container as any).prefix;
+            console.error(`[getCanonicalType]   ref.name="${typeRef.ref.name}", $container.prefix="${vocabPrefix}"`);
+            if (vocabPrefix) {
+                const canonical = `${vocabPrefix}:${typeRef.ref.name}`;
+                console.error(`[getCanonicalType]   -> canonical: ${canonical}`);
+                return canonical;
+            }
+        }
+        
+        // Fallback to source text, but resolve any aliases using the import prefix map
+        const resolved = resolveAlias(sourceText);
+        console.error(`[getCanonicalType]   -> fallback (alias resolved): ${resolved}`);
+        return resolved;
+    };
     
     // Process concept instances
     for (const statement of description.ownedStatements || []) {
         if (isConceptInstance(statement)) {
             const instance = statement as ConceptInstance;
             const instanceName = instance.name || 'unnamed';
+            console.error(`[parseDescription] Processing instance: ${instanceName}`);
             const instanceTypes = instance.ownedTypes?.map(t => {
-                // Use $refText to get qualified name (e.g., "requirement:Stakeholder")
-                // Fall back to ref.name for local references
-                return t.type?.$refText || t.type?.ref?.name || 'Unknown';
+                const canonicalType = getCanonicalType(t.type as any);
+                return canonicalType;
             }) || [];
+            console.error(`[parseDescription]   Types: ${instanceTypes.join(', ')}`);
             
             // Get line number for instance
             const instanceLine = instance.$cstNode?.range?.start?.line 
@@ -279,34 +456,67 @@ async function parseDescription(descriptionPath?: string, descriptionCode?: stri
             console.error(`[parseDescription]   Has ${pvCount} property values`);
             for (const pva of instance.ownedPropertyValues || []) {
                 // Property is a Reference<SemanticProperty>
-                // Try to get the name from the ref, or fallback to $refText (the text from the source)
+                // Get canonical qualified name (vocabPrefix:propertyName)
                 let propName = 'unknown';
+                let propQualified = 'unknown';
                 
                 if (pva.property) {
                     if (pva.property.ref?.name) {
-                        // Reference is resolved
-                        propName = pva.property.ref.name;
+                        // Reference is resolved - get canonical qualified name
+                        // Need to traverse up container hierarchy to find Vocabulary
+                        // ScalarProperty.$container = Vocabulary (direct)
+                        // ForwardRelation.$container = RelationEntity.$container = Vocabulary (nested)
+                        const propRef = pva.property.ref as { name?: string; $container?: unknown };
+                        propName = propRef.name || 'unknown';
+                        
+                        // Find vocabulary prefix by traversing up the container chain
+                        let vocabPrefix: string | undefined;
+                        let container: unknown = propRef.$container;
+                        while (container) {
+                            const containerWithPrefix = container as { prefix?: string; $container?: unknown };
+                            if (containerWithPrefix.prefix) {
+                                vocabPrefix = containerWithPrefix.prefix;
+                                break;
+                            }
+                            container = containerWithPrefix.$container;
+                        }
+                        
+                        console.error(`[parseDescription]     Traversed containers, found vocabPrefix: ${vocabPrefix}`);
+                        propQualified = vocabPrefix ? `${vocabPrefix}:${propName}` : propName;
                     } else if (pva.property.$refText) {
-                        // Reference not resolved, but we have the text (e.g., "requirement:expresses")
+                        // Reference not resolved - use source text with alias resolution
                         propName = pva.property.$refText;
+                        propQualified = resolveAlias(propName);
                     }
                 }
                 
                 console.error(`[parseDescription]     property.ref?.name: ${pva.property?.ref?.name}`);
                 console.error(`[parseDescription]     property.$refText: ${pva.property?.$refText}`);
+                console.error(`[parseDescription]     propQualified: ${propQualified}`);
                 
-                // Get referenced values (for relations)
+                // Get values - can be referenced instances (for relations) or literals (for scalar properties)
                 const values: string[] = [];
+                
+                // Referenced values (for relation properties like requirement:isExpressedBy)
                 for (const ref of pva.referencedValues || []) {
                     const refInstance = ref.ref;
                     values.push(refInstance?.name || 'unknown');
                 }
                 
-                console.error(`[parseDescription]     Property: ${propName}, values: ${values.join(', ')}`);
+                // Literal values (for scalar properties like base:expression, base:description)
+                for (const lit of pva.literalValues || []) {
+                    // Literal can be various types - extract the string value
+                    const litValue = (lit as any).value;
+                    if (litValue !== undefined && litValue !== null) {
+                        values.push(String(litValue));
+                    }
+                }
+                
+                console.error(`[parseDescription]     Property: ${propQualified}, values: ${values.join(', ')}`);
                 
                 assertions.push({
-                    propertyName: propName,
-                    propertyQualified: propName, // Simplified - would need full resolution
+                    propertyName: propQualified,  // Use qualified name for constraint matching
+                    propertyQualified: propQualified,
                     values,
                     instanceName,
                     instanceTypes,
@@ -339,7 +549,7 @@ async function parseDescription(descriptionPath?: string, descriptionCode?: stri
     
     console.error(`[parseDescription] Extracted ${assertions.length} assertions from ${instances.length} instances`);
     
-    return { assertions, instances, sourceCode: content };
+    return { assertions, instances, sourceCode: content, importPrefixMap };
 }
 
 /**
@@ -450,9 +660,25 @@ function validateDescriptionConstraints(
     instances: InstanceInfo[],
     schema: DescriptionSchema | undefined,
     instanceTypes: Map<string, string[]>,
+    importPrefixMap: ImportPrefixMap,
     filePath?: string
 ): PlaybookViolation[] {
     const violations: PlaybookViolation[] = [];
+    
+    // Helper to resolve import prefix aliases (e.g., "ent:Actor" -> "entity:Actor")
+    const resolveTypeAlias = (type: string): string => {
+        const colonIndex = type.indexOf(':');
+        if (colonIndex === -1) {
+            return type;
+        }
+        const prefix = type.substring(0, colonIndex);
+        const name = type.substring(colonIndex + 1);
+        const canonicalPrefix = importPrefixMap[prefix];
+        return canonicalPrefix ? `${canonicalPrefix}:${name}` : type;
+    };
+    
+    // Helper to normalize an array of types
+    const normalizeTypes = (types: string[]): string[] => types.map(resolveTypeAlias);
     
     if (!schema) {
         // No schema for this description, skip constraint validation
@@ -463,10 +689,16 @@ function validateDescriptionConstraints(
     console.error(`[validateDescriptionConstraints] Allowed types: ${schema.allowedTypes.join(', ')}`);
     console.error(`[validateDescriptionConstraints] ${schema.constraints.length} constraints defined`);
     
+    // Normalize allowed types for alias resolution
+    const normalizedAllowedTypes = normalizeTypes(schema.allowedTypes);
+    console.error(`[validateDescriptionConstraints] Normalized allowed types: ${normalizedAllowedTypes.join(', ')}`);
+    
     // 1. Check that all instances are of allowed types
     for (const inst of instances) {
         for (const instType of inst.types) {
-            if (!isTypeAllowed(instType, schema.allowedTypes)) {
+            const normalizedType = resolveTypeAlias(instType);
+            console.error(`[validateDescriptionConstraints] Checking type "${instType}" -> normalized "${normalizedType}"`);
+            if (!isTypeAllowed(normalizedType, normalizedAllowedTypes)) {
                 violations.push({
                     type: 'type_not_allowed',
                     location: {
@@ -492,9 +724,11 @@ function validateDescriptionConstraints(
         
         // For each type of the instance, find applicable rules
         for (const instType of types) {
-            const applicableRules = getApplicableRules(instType, schema.constraints);
+            // Normalize the instance type for rule matching
+            const normalizedType = resolveTypeAlias(instType);
+            const applicableRules = getApplicableRules(normalizedType, schema.constraints);
             
-            console.error(`[validateDescriptionConstraints] Instance "${inst.name}" type "${instType}" has ${applicableRules.length} applicable rules`);
+            console.error(`[validateDescriptionConstraints] Instance "${inst.name}" type "${instType}" (normalized: ${normalizedType}) has ${applicableRules.length} applicable rules`);
             
             // For each matching rule, check its constraints
             for (const { rule, matchReason } of applicableRules) {
@@ -511,7 +745,7 @@ function validateDescriptionConstraints(
                         propertyName: constraint.property,
                         values: matchingAssertion?.values || [],
                         instanceName: inst.name,
-                        instanceType: instType,
+                        instanceType: normalizedType,
                     };
                     
                     const validationResult = validatePropertyConstraint(
@@ -535,9 +769,13 @@ function validateDescriptionConstraints(
                     
                     // Check target type constraints if we have target type info
                     if (constraint.targetMustBe && matchingAssertion) {
+                        const normalizedTargetMustBe = resolveTypeAlias(constraint.targetMustBe);
                         for (const targetValue of matchingAssertion.values) {
                             const targetTypes = instanceTypes.get(targetValue);
-                            if (targetTypes && !targetTypes.includes(constraint.targetMustBe)) {
+                            
+                            if (!targetTypes) {
+                                // Target instance not found - could be from another file or invalid reference
+                                console.error(`[validateDescriptionConstraints] Target "${targetValue}" not found in instance map - cannot verify type constraint`);
                                 violations.push({
                                     type: 'invalid_target_type',
                                     location: {
@@ -546,21 +784,59 @@ function validateDescriptionConstraints(
                                         instance: inst.name,
                                     },
                                     rule: rule.id,
-                                    message: `${rule.message}: Property "${constraint.property}" target "${targetValue}" ` +
-                                        `must be of type "${constraint.targetMustBe}" but has types [${targetTypes.join(', ')}]`,
+                                    message: `${rule.message}: Property "${constraint.property}" references "${targetValue}" ` +
+                                        `which is not a known ${constraint.targetMustBe} instance in this description. ` +
+                                        `Expected: a local instance of type "${constraint.targetMustBe}"`,
                                     severity: rule.severity || 'warning',
                                 });
+                            } else {
+                                // Target found - check if it has the required type
+                                const normalizedTargetTypes = normalizeTypes(targetTypes);
+                                if (!normalizedTargetTypes.includes(normalizedTargetMustBe)) {
+                                    violations.push({
+                                        type: 'invalid_target_type',
+                                        location: {
+                                            file: filePath || 'unknown',
+                                            line: matchingAssertion.line,
+                                            instance: inst.name,
+                                        },
+                                        rule: rule.id,
+                                        message: `${rule.message}: Property "${constraint.property}" target "${targetValue}" ` +
+                                            `must be of type "${constraint.targetMustBe}" but has types [${targetTypes.join(', ')}]`,
+                                        severity: rule.severity || 'warning',
+                                    });
+                                }
                             }
                         }
                     }
                     
                     // Check targetMustBeOneOf
-                    if (constraint.targetMustBeOneOf && matchingAssertion) {
+                    if (constraint.targetMustBeOneOf && constraint.targetMustBeOneOf.length > 0 && matchingAssertion) {
+                        const normalizedTargetMustBeOneOf = normalizeTypes(constraint.targetMustBeOneOf);
                         for (const targetValue of matchingAssertion.values) {
                             const targetTypes = instanceTypes.get(targetValue);
-                            if (targetTypes) {
-                                const hasAllowedType = targetTypes.some(t => 
-                                    constraint.targetMustBeOneOf!.includes(t)
+                            
+                            if (!targetTypes) {
+                                // Target instance not found
+                                console.error(`[validateDescriptionConstraints] Target "${targetValue}" not found in instance map - cannot verify type constraint`);
+                                violations.push({
+                                    type: 'invalid_target_type',
+                                    location: {
+                                        file: filePath || 'unknown',
+                                        line: matchingAssertion.line,
+                                        instance: inst.name,
+                                    },
+                                    rule: rule.id,
+                                    message: `${rule.message}: Property "${constraint.property}" references "${targetValue}" ` +
+                                        `which is not a known instance in this description. ` +
+                                        `Expected: a local instance of type(s) [${constraint.targetMustBeOneOf.join(', ')}]`,
+                                    severity: rule.severity || 'warning',
+                                });
+                            } else {
+                                // Normalize both sides for alias resolution
+                                const normalizedTargetTypes = normalizeTypes(targetTypes);
+                                const hasAllowedType = normalizedTargetTypes.some(t => 
+                                    normalizedTargetMustBeOneOf.includes(t)
                                 );
                                 if (!hasAllowedType) {
                                     violations.push({
@@ -723,50 +999,52 @@ export const enforceMethodologyRulesHandler = async (params: {
     methodologyName?: string;
     descriptionPath?: string;
     descriptionCode?: string;
+    workspacePath?: string;
     autoCorrect?: boolean;
     mode?: 'validate' | 'transform' | 'suggest';
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> => {
     const debugLines: string[] = [];
     debugLines.push(`[DEBUG] enforce_methodology_rules called`);
     debugLines.push(`[DEBUG] playbookPath: ${params.playbookPath}`);
-    debugLines.push(`[DEBUG] methodologyName: ${params.methodologyName}`);
     debugLines.push(`[DEBUG] descriptionPath: ${params.descriptionPath}`);
+    debugLines.push(`[DEBUG] workspacePath: ${params.workspacePath}`);
     debugLines.push(`[DEBUG] mode: ${params.mode}`);
     
     try {
-        const { methodologyName, descriptionPath, descriptionCode, autoCorrect = false, mode = 'validate' } = params;
+        const { descriptionPath, descriptionCode, autoCorrect = false, mode = 'validate' } = params;
         
-        let { playbookPath } = params;
-        
-        // Auto-detect playbook if not provided
-        if (!playbookPath) {
-            debugLines.push(`[DEBUG] No playbookPath, attempting auto-detect with methodologyName: ${methodologyName}`);
-            if (!methodologyName) {
-                const msg = `**Error:** Either playbookPath or methodologyName must be provided.\n\n- playbookPath: Direct path to YAML playbook\n- methodologyName: Name like "Sierra" to auto-detect playbook`;
-                console.error(`[enforce_methodology_rules] ERROR: ${msg}`);
-                return {
-                    content: [{ type: 'text', text: msg }],
-                    isError: true,
-                };
+        // Auto-detect playbook using shared helper
+        let playbookPath: string;
+        try {
+            playbookPath = resolvePlaybookPath({
+                playbookPath: params.playbookPath,
+                descriptionPath: params.descriptionPath,
+                workspacePath: params.workspacePath,
+            });
+            debugLines.push(`[DEBUG] Resolved playbookPath: ${playbookPath}`);
+        } catch (err) {
+            // Fallback to legacy detection with methodologyName
+            if (params.methodologyName) {
+                const detected = detectPlaybookPath(params.methodologyName, descriptionPath);
+                if (detected) {
+                    playbookPath = detected;
+                    debugLines.push(`[DEBUG] Legacy detection found: ${playbookPath}`);
+                } else {
+                    const msg = `**Could not find methodology playbook**\n\n` +
+                        `Searched for: *_playbook.yaml, methodology_playbook.yaml\n\n` +
+                        `Options:\n` +
+                        `- Provide playbookPath explicitly\n` +
+                        `- Provide workspacePath to search from\n` +
+                        `- Ensure a playbook exists in the project`;
+                    return { content: [{ type: 'text', text: msg }], isError: true };
+                }
+            } else {
+                const msg = err instanceof Error ? err.message : String(err);
+                return { content: [{ type: 'text', text: `**Error:** ${msg}` }], isError: true };
             }
-            
-            const detected = detectPlaybookPath(methodologyName, descriptionPath);
-            debugLines.push(`[DEBUG] detectPlaybookPath result: ${detected}`);
-            console.error(`[enforce_methodology_rules] detectPlaybookPath result: ${detected}`);
-            if (!detected) {
-                const msg = `**Could not auto-detect playbook for "${methodologyName}"**\n\nSearched for: ${methodologyName.toLowerCase()}_playbook.yaml, methodology_playbook.yaml, etc.\n\nSpecify playbookPath explicitly or ensure playbook is in project root or parent directories.`;
-                console.error(`[enforce_methodology_rules] ERROR: ${msg}`);
-                return {
-                    content: [{ type: 'text', text: msg }],
-                    isError: true,
-                };
-            }
-            
-            playbookPath = detected;
         }
         
         debugLines.push(`[DEBUG] Using playbookPath: ${playbookPath}`);
-        debugLines.push(`[DEBUG] Loading playbook...`);
         
         if (!descriptionPath && !descriptionCode) {
             const msg = 'Error: Either descriptionPath or descriptionCode must be provided';
@@ -780,7 +1058,7 @@ export const enforceMethodologyRulesHandler = async (params: {
         
         // Load playbook
         debugLines.push(`[DEBUG] Loading playbook from: ${playbookPath}`);
-        const playbook = loadPlaybook(playbookPath);
+        const playbook = loadPlaybookHelper(playbookPath);
         debugLines.push(`[DEBUG] Playbook loaded: ${playbook.metadata.methodology}`);
         debugLines.push(`[DEBUG] Playbook has ${playbook.relationRules.length} relation rules`);
         
@@ -789,7 +1067,7 @@ export const enforceMethodologyRulesHandler = async (params: {
         
         // Parse description
         debugLines.push(`[DEBUG] Parsing description from: ${descriptionPath || 'inline code'}`);
-        const { assertions, instances, sourceCode } = await parseDescription(descriptionPath, descriptionCode);
+        const { assertions, instances, sourceCode, importPrefixMap } = await parseDescription(descriptionPath, descriptionCode);
         debugLines.push(`[DEBUG] Parsed: ${assertions.length} assertions, ${instances.length} instances`);
         
         for (const a of assertions) {
@@ -832,6 +1110,7 @@ export const enforceMethodologyRulesHandler = async (params: {
             instances,
             descriptionSchema,
             instanceTypes,
+            importPrefixMap,
             descriptionPath
         );
         debugLines.push(`[DEBUG] Constraint validation complete: ${constraintViolations.length} additional violations`);
