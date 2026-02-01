@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import * as fs from 'fs';
-import { resolvePlaybookPath, loadPlaybook } from './playbook-helpers.js';
+import { resolvePlaybookPath, loadPlaybook } from './core/index.js';
 import type { MethodologyPlaybook, DescriptionConstraint } from './playbook-types.js';
 
 export const analyzeMethodologyRequestTool = {
@@ -428,8 +428,14 @@ export const analyzeMethodologyRequestHandler = async (params: {
         let playbook: MethodologyPlaybook | null = null;
         try {
             const playbookPath = resolvePlaybookPath({ workspacePath });
-            playbook = loadPlaybook(playbookPath);
+            if (playbookPath) {
+                playbook = loadPlaybook(playbookPath);
+            }
         } catch {
+            // Playbook load error - will proceed with null
+        }
+        
+        if (!playbook) {
             return {
                 content: [{
                     type: 'text',

@@ -50,7 +50,8 @@ interface ExtractedRelation {
 }
 
 /**
- * Parse a vocabulary file and extract bidirectional relations.
+ * Parse a vocabulary file and extract bidirectional relations. Can be expanded to other 
+ * terms in the vocabulary as needed. 
  */
 async function parseVocabularyForRelations(filePath: string): Promise<ExtractedRelation[]> {
     const services = createOmlServices(NodeFileSystem).Oml;

@@ -23,6 +23,19 @@ export const addRestrictionTool = {
     paramsSchema,
 };
 
+export const addRestrictionMetadata = {
+    id: 'add_restriction',
+    displayName: 'Add Restriction',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Add a property restriction to an entity',
+    description: 'Adds a property restriction axiom to an entity to constrain property usage.',
+    tags: ['axiom', 'restriction', 'property', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function buildRestrictionText(params: {
     property: string;
     restrictionType: string;

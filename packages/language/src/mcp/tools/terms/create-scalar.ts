@@ -28,6 +28,19 @@ export const createScalarTool = {
     paramsSchema,
 };
 
+export const createScalarMetadata = {
+    id: 'create_scalar',
+    displayName: 'Create Scalar',
+    layer: 'vocabulary' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a scalar (primitive value type) in a vocabulary file',
+    description: 'Creates a new scalar type for primitive values in a vocabulary file with optional enumeration.',
+    tags: ['type-definition', 'scalar', 'vocabulary', 'primitive-type'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createScalarHandler = async (
     { ontology, name, literalEnumeration, annotations }: { ontology: string; name: string; literalEnumeration?: LiteralParam[]; annotations?: AnnotationParam[] }
 ) => {

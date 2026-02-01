@@ -42,6 +42,19 @@ Always try to include a reverseName for better readability and navigation in too
     paramsSchema,
 };
 
+export const createRelationMetadata = {
+    id: 'create_relation',
+    displayName: 'Create Relation',
+    layer: 'vocabulary' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a relation (unreified) between entities',
+    description: 'Creates a new relation between entities in a vocabulary file. This is the default way to define relationships. Include a reverseName for bidirectional navigation.',
+    tags: ['relation-definition', 'unreified-relation', 'vocabulary', 'relationship'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 // Keep the old name as an alias for backwards compatibility
 export const createUnreifiedRelationTool = createRelationTool;
 

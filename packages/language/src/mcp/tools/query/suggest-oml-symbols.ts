@@ -126,6 +126,19 @@ export const suggestOmlSymbolsTool = {
     paramsSchema,
 };
 
+export const suggestOmlSymbolsMetadata = {
+    id: 'suggest_oml_symbols',
+    displayName: 'Suggest OML Symbols',
+    layer: 'query' as const,
+    severity: 'low' as const,
+    version: '1.0.0',
+    shortDescription: 'Search workspace for available OML symbols',
+    description: 'Queries the language server for available OML symbols with proper type information. Helps discover concepts, relations, properties, scalars, and other definitions available in the workspace.',
+    tags: ['search', 'discovery', 'symbols', 'query'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const suggestOmlSymbolsHandler = async (
     params: {
         uri: string;

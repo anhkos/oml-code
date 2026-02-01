@@ -13,6 +13,19 @@ export const updateEquivalenceTool = {
     paramsSchema,
 };
 
+export const updateEquivalenceMetadata = {
+    id: 'update_equivalence',
+    displayName: 'Update Equivalence',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Update equivalence axiom on a term',
+    description: 'Updates equivalence axiom on a term by replacing existing equivalences.',
+    tags: ['axiom', 'equivalence', 'update', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updateEquivalenceHandler = async (
     { ontology, termName, equivalentTerms }: { ontology: string; termName: string; equivalentTerms: string[] }
 ) => {

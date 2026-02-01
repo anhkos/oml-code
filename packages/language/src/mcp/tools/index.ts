@@ -4,7 +4,7 @@ import { axiomTools } from './axioms/index.js';
 import { instanceTools } from './instances/index.js';
 import { ontologyTools } from './ontology/index.js';
 import { ruleTools } from './rules/index.js';
-import { validateOmlHandler, validateOmlTool } from './validate-tool.js';
+import { validateOmlHandler, validateOmlTool, validateOmlMetadata } from './validate-tool.js';
 import { pendingTools } from './stubs/pending-tools.js';
 import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-imports.js';
 import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
@@ -12,21 +12,21 @@ import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './metho
 import { generateVocabularyBundleHandler, generateVocabularyBundleTool } from './methodology/generate-vocabulary-bundle.js';
 import { clarifyMethodologyPreferencesHandler, clarifyMethodologyPreferencesTool } from './methodology/clarify-methodology-preferences.js';
 import { extractMethodologyRulesHandler, extractMethodologyRulesTool } from './methodology/extract-methodology-rules.js';
-import { enforceMethodologyRulesHandler, enforceMethodologyRulesTool } from './methodology/enforce-methodology-rules.js';
+import { enforceMethodologyRulesHandler, enforceMethodologyRulesTool, enforceMethodologyRulesMetadata } from './methodology/enforce-methodology-rules.js';
 import { extractDescriptionSchemasHandler, extractDescriptionSchemasTool } from './methodology/extract-description-schemas.js';
 import { routeInstanceHandler, routeInstanceTool } from './methodology/route-instance.js';
 import { updatePlaybookHandler, updatePlaybookTool } from './methodology/update-playbook.js';
 import { listPlaybookConstraintsHandler, listPlaybookConstraintsTool } from './methodology/list-playbook-constraints.js';
 import { prepareInstanceHandler, prepareInstanceTool } from './methodology/prepare-instance.js';
 import { analyzeMethodologyRequestHandler, analyzeMethodologyRequestTool } from './methodology/analyze-request.js';
-import { suggestOmlSymbolsTool, analyzeImpactTool, analyzeImpactHandler } from './query/index.js';
+import { suggestOmlSymbolsTool, analyzeImpactTool, analyzeImpactHandler, suggestOmlSymbolsMetadata, analyzeImpactMetadata } from './query/index.js';
 import { suggestOmlSymbolsHandler } from './query/suggest-oml-symbols.js';
 import { preferencesTools } from './preferences/index.js';
 
 const coreTools: ToolRegistration[] = [
-    { tool: validateOmlTool, handler: validateOmlHandler },
-    { tool: suggestOmlSymbolsTool, handler: suggestOmlSymbolsHandler },
-    { tool: analyzeImpactTool, handler: analyzeImpactHandler },
+    { tool: validateOmlTool, handler: validateOmlHandler, metadata: validateOmlMetadata },
+    { tool: suggestOmlSymbolsTool, handler: suggestOmlSymbolsHandler, metadata: suggestOmlSymbolsMetadata },
+    { tool: analyzeImpactTool, handler: analyzeImpactHandler, metadata: analyzeImpactMetadata },
     ...termTools,
     ...axiomTools,
     ...instanceTools,
@@ -38,7 +38,7 @@ const coreTools: ToolRegistration[] = [
     { tool: generateVocabularyBundleTool, handler: generateVocabularyBundleHandler },
     { tool: clarifyMethodologyPreferencesTool, handler: clarifyMethodologyPreferencesHandler },
     { tool: extractMethodologyRulesTool, handler: extractMethodologyRulesHandler },
-    { tool: enforceMethodologyRulesTool, handler: enforceMethodologyRulesHandler },
+    { tool: enforceMethodologyRulesTool, handler: enforceMethodologyRulesHandler, metadata: enforceMethodologyRulesMetadata },
     { tool: extractDescriptionSchemasTool, handler: extractDescriptionSchemasHandler },
     { tool: routeInstanceTool, handler: routeInstanceHandler },
     { tool: updatePlaybookTool, handler: updatePlaybookHandler },

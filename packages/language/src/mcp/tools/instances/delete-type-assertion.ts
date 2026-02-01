@@ -19,6 +19,19 @@ Warning: Removing the primary type may leave the instance in an invalid state.`,
     paramsSchema,
 };
 
+export const deleteTypeAssertionMetadata = {
+    id: 'delete_type_assertion',
+    displayName: 'Delete Type Assertion',
+    layer: 'description' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove a type assertion from an instance',
+    description: 'Removes a type assertion from an instance with multiple types.',
+    tags: ['type-assertion', 'instance-modification', 'description'],
+    dependencies: [],
+    addedDate: '2026-02-01',
+};
+
 export const deleteTypeAssertionHandler = async (
     { ontology, instance, typeToRemove }: { ontology: string; instance: string; typeToRemove: string }
 ) => {

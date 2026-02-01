@@ -57,6 +57,19 @@ Always use validate_oml on dependent files after deletion to identify broken ref
     paramsSchema,
 };
 
+export const deleteOntologyMetadata = {
+    id: 'delete_ontology',
+    displayName: 'Delete Ontology',
+    layer: 'core' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Delete an ontology file with impact analysis',
+    description: 'Deletes an ontology file with dependency analysis to prevent breaking changes.',
+    tags: ['ontology-deletion', 'safety', 'destructive'],
+    dependencies: ['analyze_impact', 'validate_oml'],
+    addedDate: '2024-01-01',
+};
+
 async function findDependentFiles(ontologyPath: string, workspaceRoot: string): Promise<string[]> {
     const dependents: string[] = [];
     const ontologyName = path.basename(ontologyPath, '.oml');

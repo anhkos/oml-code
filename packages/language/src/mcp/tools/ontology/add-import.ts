@@ -20,13 +20,37 @@ const paramsSchema = {
 
 export const addImportTool = {
     name: 'add_import' as const,
-    description: `Adds an extends/uses import statement to an ontology. Validates that the target ontology exists.
+    description: `Adds an extends/uses import statement to an OML ontology. This is the PRIMARY tool for adding semantic imports.
+
+✅ ALWAYS use this tool to add imports to OML files - it handles:
+- Auto-detecting import kind (extends/uses) based on ontology type
+- Validating target ontology exists
+- Proper OML syntax generation
+- Preventing duplicate imports
+
+⚠️ DO NOT use apply_text_edit for adding imports unless the file has syntax errors that prevent parsing.
 
 IMPORTANT: Use ABSOLUTE file paths for both ontology and targetOntologyPath parameters.
 If you don't know the exact path to the target ontology, use ensure_imports instead - it auto-discovers workspace vocabularies by prefix.
 
-For most cases, prefer ensure_imports over add_import as it handles path resolution automatically.`,
+Example: Add Dublin Core import to a vocabulary:
+  ontology: "C:/project/vocab.oml"
+  targetOntologyPath: "C:/project/dependencies/dc.oml"
+  importKind: "uses" (optional - auto-detected)`,
     paramsSchema,
+};
+
+export const addImportMetadata = {
+    id: 'add_import',
+    displayName: 'Add Import',
+    layer: 'core' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Add an import statement to an ontology',
+    description: 'Adds an extends/uses import statement to an ontology.',
+    tags: ['import-management', 'ontology-structure'],
+    dependencies: [],
+    addedDate: '2024-01-01',
 };
 
 export const addImportHandler = async (

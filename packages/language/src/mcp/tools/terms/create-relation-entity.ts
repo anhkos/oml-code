@@ -43,6 +43,19 @@ Auto-resolves simple or qualified sources/targets/superTerms and adds missing im
     paramsSchema,
 };
 
+export const createRelationEntityMetadata = {
+    id: 'create_relation_entity',
+    displayName: 'Create Relation Entity',
+    layer: 'vocabulary' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a reified relation entity (advanced)',
+    description: 'Creates a reified relation entity in a vocabulary file. Only use when you need to instantiate relations or attach properties to them. For normal relationships, use create_relation instead.',
+    tags: ['relation-definition', 'relation-entity', 'vocabulary', 'reified-relation', 'advanced'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createRelationEntityHandler = async (
     params: {
         ontology: string;

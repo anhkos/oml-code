@@ -14,6 +14,19 @@ export const updateKeyTool = {
     paramsSchema,
 };
 
+export const updateKeyMetadata = {
+    id: 'update_key',
+    displayName: 'Update Key',
+    layer: 'axiom' as const,
+    severity: 'medium' as const,
+    version: '1.0.0',
+    shortDescription: 'Update key axioms on an entity',
+    description: 'Updates key axioms on a concept or relation entity by replacing existing keys.',
+    tags: ['axiom', 'key', 'update', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updateKeyHandler = async (
     { ontology, termName, keys }: { ontology: string; termName: string; keys: string[][] }
 ) => {

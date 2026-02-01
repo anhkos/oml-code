@@ -7,9 +7,11 @@ import { z } from 'zod';
 import { 
     resolvePlaybookPath, 
     loadPlaybook, 
-    listConstraints, 
+} from './core/index.js';
+import {
+    listConstraints,
+    ConstraintInfo,
     listDescriptionFiles,
-    ConstraintInfo 
 } from './playbook-helpers.js';
 
 export const listPlaybookConstraintsTool = {
@@ -63,6 +65,14 @@ export async function listPlaybookConstraintsHandler(params: {
 }): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
     try {
         const playbookPath = resolvePlaybookPath(params);
+        if (!playbookPath) {
+            return {
+                content: [{
+                    type: 'text',
+                    text: 'No playbook found in the workspace. Cannot list constraints.',
+                }],
+            };
+        }
         const playbook = loadPlaybook(playbookPath);
         
         const constraints = listConstraints(playbook, {

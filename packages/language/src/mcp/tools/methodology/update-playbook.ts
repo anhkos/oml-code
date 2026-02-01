@@ -17,8 +17,10 @@ import type {
 } from './playbook-types.js';
 import {
     resolvePlaybookPath,
-    loadPlaybook as loadPlaybookHelper,
-    savePlaybook as savePlaybookHelper,
+    loadPlaybook,
+    savePlaybook,
+} from './core/index.js';
+import {
     findDescriptionSchema as findDescriptionSchemaHelper,
     suggestConstraintIds,
     listDescriptionFiles,
@@ -604,7 +606,16 @@ export async function updatePlaybookHandler(params: UpdatePlaybookParams): Promi
             workspacePath: params.workspacePath,
         });
         
-        const playbook = loadPlaybookHelper(playbookPath);
+        if (!playbookPath) {
+            return {
+                content: [{
+                    type: 'text',
+                    text: 'Could not find or resolve playbook path. Please provide a valid playbookPath or ensure the workspace contains a playbook.',
+                }],
+            };
+        }
+        
+        const playbook = loadPlaybook(playbookPath);
 
         // ====================================================================
         // Metadata Updates
@@ -1080,7 +1091,7 @@ export async function updatePlaybookHandler(params: UpdatePlaybookParams): Promi
             };
         }
 
-        savePlaybookHelper(playbookPath, playbook);
+        savePlaybook(playbookPath!, playbook);
 
         const changeList = changes.map(c => `- ${c}`).join('\n');
         return {

@@ -33,6 +33,19 @@ Auto-resolves simple or qualified domains/ranges and adds missing imports. If a 
     paramsSchema,
 };
 
+export const createScalarPropertyMetadata = {
+    id: 'create_scalar_property',
+    displayName: 'Create Scalar Property',
+    layer: 'vocabulary' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a scalar property with optional domains and ranges',
+    description: 'Creates a new scalar property in a vocabulary file with optional domain/range constraints and functional modifiers.',
+    tags: ['property-definition', 'scalar-property', 'vocabulary', 'relation'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createScalarPropertyHandler = async (
     { ontology, name, domains, ranges, functional, annotations }: { ontology: string; name: string; domains?: string[]; ranges?: string[]; functional?: boolean; annotations?: AnnotationParam[] }
 ) => {

@@ -25,6 +25,19 @@ Use literalValues for scalar properties and referencedValues for relations to ot
     paramsSchema,
 };
 
+export const updatePropertyValueMetadata = {
+    id: 'update_property_value',
+    displayName: 'Update Property Value',
+    layer: 'description' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Update a property value on an instance',
+    description: 'Updates property values on an instance by replacing existing values.',
+    tags: ['property-update', 'instance-modification', 'description'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updatePropertyValueHandler = async (
     { ontology, instanceName, property, literalValues, referencedValues }: 
     { ontology: string; instanceName: string; property: string; literalValues?: LiteralParam[]; referencedValues?: string[] }

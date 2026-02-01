@@ -26,6 +26,19 @@ Example: analyze_impact("Vehicle") might show:
     paramsSchema,
 };
 
+export const analyzeImpactMetadata = {
+    id: 'analyze_impact',
+    displayName: 'Analyze Impact',
+    layer: 'query' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Analyze the impact of modifying or deleting a symbol',
+    description: 'Scans the workspace to find all references to a symbol before modification or deletion. Shows specializations, instances, property usages, and imports.',
+    tags: ['analysis', 'impact', 'references', 'safety'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const analyzeImpactHandler = async (
     { ontology, symbol }: { ontology: string; symbol: string }
 ) => {

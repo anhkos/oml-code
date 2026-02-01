@@ -18,6 +18,19 @@ Provide newAntecedent and/or newConsequent to update the corresponding parts.`,
     paramsSchema,
 };
 
+export const updateRuleMetadata = {
+    id: 'update_rule',
+    displayName: 'Update Rule',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Update a rule antecedent or consequent',
+    description: 'Updates a rule by modifying its antecedent and/or consequent predicates.',
+    tags: ['rule-update', 'axiom', 'logic'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updateRuleHandler = async (
     { ontology, ruleName, newAntecedent, newConsequent }: { ontology: string; ruleName: string; newAntecedent?: string[]; newConsequent?: string[] }
 ) => {

@@ -19,6 +19,19 @@ Example: To remove "restricts all hasColor to Color" from concept Vehicle:
     paramsSchema,
 };
 
+export const deleteRestrictionMetadata = {
+    id: 'delete_restriction',
+    displayName: 'Delete Restriction',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove a property restriction from an entity',
+    description: 'Removes a property restriction from an entity.',
+    tags: ['axiom', 'restriction', 'delete', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deleteRestrictionHandler = async (
     { ontology, entity, property, restrictionIndex = 0 }: { ontology: string; entity: string; property: string; restrictionIndex?: number }
 ) => {

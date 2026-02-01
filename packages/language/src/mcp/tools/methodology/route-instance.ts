@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import yaml from 'js-yaml';
 import type { MethodologyPlaybook, DescriptionSchema } from './playbook-types.js';
-import { resolvePlaybookPath, loadPlaybook as loadPlaybookHelper } from './playbook-helpers.js';
+import { resolvePlaybookPath, loadPlaybook as loadPlaybookFromCore } from './core/index.js';
 
 export const routeInstanceTool = {
     name: 'route_instance' as const,
@@ -508,7 +508,7 @@ export const routeInstanceHandler = async (params: {
             try {
                 const resolvedPath = resolvePlaybookPath({ workspacePath });
                 if (resolvedPath) {
-                    playbook = loadPlaybookHelper(resolvedPath);
+                    playbook = loadPlaybookFromCore(resolvedPath);
                     playbookDir = path.dirname(resolvedPath);
                 }
             } catch {

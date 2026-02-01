@@ -27,6 +27,19 @@ export const createAspectTool = {
     paramsSchema,
 };
 
+export const createAspectMetadata = {
+    id: 'create_aspect',
+    displayName: 'Create Aspect',
+    layer: 'vocabulary' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create an aspect (mixin type) in a vocabulary file',
+    description: 'Creates a new aspect (reusable mixin type) in a vocabulary file with optional key axioms.',
+    tags: ['type-definition', 'aspect', 'vocabulary', 'mixin'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createAspectHandler = async (
     { ontology, name, keys, annotations }: { ontology: string; name: string; keys?: string[][]; annotations?: AnnotationParam[] }
 ) => {

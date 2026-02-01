@@ -28,6 +28,19 @@ export const addEquivalenceTool = {
     paramsSchema,
 };
 
+export const addEquivalenceMetadata = {
+    id: 'add_equivalence',
+    displayName: 'Add Equivalence',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Add an equivalence axiom to a term',
+    description: 'Adds an equivalence axiom to a term (entity, scalar, or property) to express external equivalences.',
+    tags: ['axiom', 'equivalence', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const addEquivalenceHandler = async (params: {
     ontology: string;
     term: string;

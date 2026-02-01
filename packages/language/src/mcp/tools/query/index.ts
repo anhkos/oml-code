@@ -1,5 +1,6 @@
 export { 
-    suggestOmlSymbolsTool, 
+    suggestOmlSymbolsTool,
+    suggestOmlSymbolsMetadata,
     suggestOmlSymbolsHandler, 
     type SymbolSuggestion, 
     type SuggestSymbolsResult,
@@ -20,5 +21,6 @@ export {
 
 export {
     analyzeImpactTool,
+    analyzeImpactMetadata,
     analyzeImpactHandler,
 } from './analyze-impact.js';

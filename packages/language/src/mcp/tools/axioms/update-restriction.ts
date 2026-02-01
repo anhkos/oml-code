@@ -20,6 +20,19 @@ export const updateRestrictionTool = {
     paramsSchema,
 };
 
+export const updateRestrictionMetadata = {
+    id: 'update_restriction',
+    displayName: 'Update Restriction',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Update a property restriction on an entity',
+    description: 'Updates a specific property restriction on an entity by modifying the restriction at a given index.',
+    tags: ['axiom', 'restriction', 'update', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updateRestrictionHandler = async (
     params: { ontology: string; termName: string; restrictionIndex: number; restrictionKind: string; property: string; range?: string; min?: number; max?: number; value?: string }
 ) => {

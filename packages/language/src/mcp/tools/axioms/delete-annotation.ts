@@ -21,6 +21,19 @@ Examples:
     paramsSchema,
 };
 
+export const deleteAnnotationMetadata = {
+    id: 'delete_annotation',
+    displayName: 'Delete Annotation',
+    layer: 'axiom' as const,
+    severity: 'low' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove an annotation from a term or ontology',
+    description: 'Removes an annotation property value from a term, instance, or ontology.',
+    tags: ['axiom', 'annotation', 'delete', 'metadata'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deleteAnnotationHandler = async (
     { ontology, target, property }: { ontology: string; target?: string; property: string }
 ) => {

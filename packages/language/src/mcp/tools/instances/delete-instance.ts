@@ -20,6 +20,19 @@ Use force=true to suppress the impact warning.`,
     paramsSchema,
 };
 
+export const deleteInstanceMetadata = {
+    id: 'delete_instance',
+    displayName: 'Delete Instance',
+    layer: 'description' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Delete an instance from a description file',
+    description: 'Deletes a concept or relation instance from a description file with impact analysis.',
+    tags: ['instance-deletion', 'description', 'safety'],
+    dependencies: ['analyze_impact'],
+    addedDate: '2024-01-01',
+};
+
 export const deleteInstanceHandler = async ({ ontology, instance, force = false }: { ontology: string; instance: string; force?: boolean }) => {
     try {
         const { description, filePath, fileUri, text, eol } = await loadDescriptionDocument(ontology);

@@ -12,7 +12,18 @@ export const deleteSpecializationTool = {
     description: 'Removes a single super term from a term’s specialization clause.',
     paramsSchema,
 };
-
+export const deleteSpecializationMetadata = {
+    id: 'delete_specialization',
+    displayName: 'Delete Specialization',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove a super term from a specialization',
+    description: 'Removes a super term from a term specialization to modify type hierarchies.',
+    tags: ['axiom', 'specialization', 'delete', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
 function extractSpecialization(termText: string) {
     const idx = termText.indexOf('<');
     if (idx === -1) return { exists: false } as const;

@@ -18,6 +18,19 @@ Example: If "Car" has "< Vehicle & FourWheeled" (equivalent to Vehicle and FourW
     paramsSchema,
 };
 
+export const deleteEquivalenceMetadata = {
+    id: 'delete_equivalence',
+    displayName: 'Delete Equivalence',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove an equivalence axiom from a term',
+    description: 'Removes an equivalence axiom from a term to modify external equivalences.',
+    tags: ['axiom', 'equivalence', 'delete', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deleteEquivalenceHandler = async (
     { ontology, term, equivalentTerm }: { ontology: string; term: string; equivalentTerm?: string }
 ) => {

@@ -54,6 +54,19 @@ export const createRuleTool = {
     paramsSchema,
 };
 
+export const createRuleMetadata = {
+    id: 'create_rule',
+    displayName: 'Create Rule',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a rule in a vocabulary or description file',
+    description: 'Creates a new rule with antecedents and consequents for logical inference.',
+    tags: ['rule-creation', 'axiom', 'logic'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function formatArgument(arg: RuleArgument): string {
     switch (arg.kind) {
         case 'variable':

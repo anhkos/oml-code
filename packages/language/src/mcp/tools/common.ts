@@ -2,9 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
-import { URI } from 'langium';
-import { NodeFileSystem } from 'langium/node';
-import { createOmlServices } from '../../oml-module.js';
+import {
+    getOmlServices,
+    getFreshDocument as getFreshDocumentFromStore,
+    getWorkspaceRoot as getWorkspaceRootFromResolver,
+    resolveWorkspacePath as resolveWorkspacePathFromResolver,
+    pathToFileUri as pathToFileUriFromResolver,
+    fileUriToPath as fileUriToPathFromResolver,
+    detectIndentation as detectIndentationFromResolver,
+} from '../services/index.js';
 import {
     AnnotationProperty,
     Aspect,
@@ -33,25 +39,19 @@ export const LSP_BRIDGE_PORT = 5007;
  * Priority:
  * 1. OML_WORKSPACE_ROOT environment variable (set by VS Code MCP integration)
  * 2. Current working directory as fallback
+ * 
+ * Note: This is a re-export from services layer for backwards compatibility.
  */
-export function getWorkspaceRoot(): string {
-    return process.env.OML_WORKSPACE_ROOT || process.cwd();
-}
+export const getWorkspaceRoot = getWorkspaceRootFromResolver;
 
 /**
  * Resolve a file path relative to the workspace root.
  * - If the path is already absolute, return it as-is.
  * - If relative, resolve against the workspace root (not cwd).
+ * 
+ * Note: This is a re-export from services layer for backwards compatibility.
  */
-export function resolveWorkspacePath(inputPath: string): string {
-    // Check if path is already absolute
-    if (path.isAbsolute(inputPath)) {
-        return inputPath;
-    }
-    // Resolve relative paths against the workspace root
-    const workspaceRoot = getWorkspaceRoot();
-    return path.resolve(workspaceRoot, inputPath);
-}
+export const resolveWorkspacePath = resolveWorkspacePathFromResolver;
 
 // OML reserved keywords that cannot be used as prefixes without escaping
 export const OML_RESERVED_KEYWORDS = new Set([
@@ -156,33 +156,20 @@ export function pathToFileUri(filePath: string): string {
     if (filePath.startsWith('file://')) {
         return filePath;
     }
-    const absolutePath = resolveWorkspacePath(filePath);
-    return URI.file(absolutePath).toString();
+    return pathToFileUriFromResolver(filePath);
 }
 
-export function fileUriToPath(fileUri: string): string {
-    return URI.parse(fileUri).fsPath;
-}
+export const fileUriToPath = fileUriToPathFromResolver;
 
 /**
  * Gets a fresh document from disk, invalidating any cached version.
  * This ensures the MCP tools always work with the current file content,
  * not stale cached content that may have been modified externally.
+ * 
+ * Note: Now delegates to centralized document store from services layer.
  */
-export async function getFreshDocument(services: ReturnType<typeof createOmlServices>, fileUri: string) {
-    const parsedUri = URI.parse(fileUri);
-    const langiumDocs = services.shared.workspace.LangiumDocuments;
-    
-    // Delete any cached document to force re-reading from disk
-    if (langiumDocs.hasDocument(parsedUri)) {
-        langiumDocs.deleteDocument(parsedUri);
-    }
-    
-    // Now get a fresh document from disk
-    const document = await langiumDocs.getOrCreateDocument(parsedUri);
-    await services.shared.workspace.DocumentBuilder.build([document], { validation: false });
-    
-    return document;
+export async function getFreshDocument(services: ReturnType<typeof getOmlServices>, fileUri: string) {
+    return getFreshDocumentFromStore(fileUri);
 }
 
 export async function loadVocabularyDocument(ontology: string) {
@@ -193,7 +180,7 @@ export async function loadVocabularyDocument(ontology: string) {
         throw new Error(`File not found at ${filePath}`);
     }
 
-    const services = createOmlServices(NodeFileSystem);
+    const services = getOmlServices();
     
     // Use getFreshDocument to ensure we always read from disk
     const document = await getFreshDocument(services, fileUri);
@@ -222,7 +209,7 @@ export async function loadAnyOntologyDocument(ontology: string) {
         throw new Error(`File not found at ${filePath}`);
     }
 
-    const services = createOmlServices(NodeFileSystem);
+    const services = getOmlServices();
     
     // Use getFreshDocument to ensure we always read from disk
     const document = await getFreshDocument(services, fileUri);
@@ -264,14 +251,11 @@ export async function loadAnyOntologyDocument(ontology: string) {
     };
 }
 
-export function detectIndentation(content: string): string {
-    const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-        const match = line.match(/^( +|\t+)/);
-        if (match) return match[1];
-    }
-    return '    ';
-}
+/**
+ * Detect indentation style used in a file.
+ * Note: This is a re-export from services layer for backwards compatibility.
+ */
+export const detectIndentation = detectIndentationFromResolver;
 
 export function formatLiteral(lit: LiteralParam): string {
     switch (lit.type) {

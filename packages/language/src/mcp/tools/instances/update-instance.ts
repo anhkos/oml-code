@@ -31,6 +31,19 @@ IMPORTANT: newTypes REPLACES all types - include ALL types you want the instance
     paramsSchema,
 };
 
+export const updateInstanceMetadata = {
+    id: 'update_instance',
+    displayName: 'Update Instance',
+    layer: 'description' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Update an instance in a description file',
+    description: 'Updates instance name, types, sources/targets, properties, or annotations.',
+    tags: ['instance-update', 'description'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function buildPropertyValues(propVals: PropertyValueParam[] | undefined, indent: string, eol: string): string {
     if (!propVals || propVals.length === 0) return '';
     

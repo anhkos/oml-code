@@ -14,6 +14,19 @@ export const updateAnnotationTool = {
     paramsSchema,
 };
 
+export const updateAnnotationMetadata = {
+    id: 'update_annotation',
+    displayName: 'Update Annotation',
+    layer: 'axiom' as const,
+    severity: 'low' as const,
+    version: '1.0.0',
+    shortDescription: 'Update annotations on a term',
+    description: 'Updates annotation property values on a term by replacing existing annotations.',
+    tags: ['axiom', 'annotation', 'update', 'metadata'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const updateAnnotationHandler = async (
     { ontology, termName, annotations }: { ontology: string; termName: string; annotations: AnnotationParam[] }
 ) => {

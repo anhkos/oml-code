@@ -19,6 +19,19 @@ Example: Remove "hasAge" value from instance "person1":
     paramsSchema,
 };
 
+export const deletePropertyValueMetadata = {
+    id: 'delete_property_value',
+    displayName: 'Delete Property Value',
+    layer: 'description' as const,
+    severity: 'medium' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove a property value from an instance',
+    description: 'Removes property value assertions from an instance.',
+    tags: ['property-deletion', 'instance-modification', 'description'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deletePropertyValueHandler = async (
     { ontology, instance, property, valueIndex }: { ontology: string; instance: string; property: string; valueIndex?: number }
 ) => {

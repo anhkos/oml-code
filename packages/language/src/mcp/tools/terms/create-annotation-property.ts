@@ -25,6 +25,19 @@ export const createAnnotationPropertyTool = {
     paramsSchema,
 };
 
+export const createAnnotationPropertyMetadata = {
+    id: 'create_annotation_property',
+    displayName: 'Create Annotation Property',
+    layer: 'vocabulary' as const,
+    severity: 'medium' as const,
+    version: '1.0.0',
+    shortDescription: 'Create an annotation property in a vocabulary file',
+    description: 'Creates a new annotation property in a vocabulary file for metadata purposes.',
+    tags: ['property-definition', 'annotation', 'vocabulary', 'metadata'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createAnnotationPropertyHandler = async (
     { ontology, name, annotations }: { ontology: string; name: string; annotations?: AnnotationParam[] }
 ) => {

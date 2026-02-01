@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import * as fs from 'fs';
-import { resolvePlaybookPath, loadPlaybook } from './playbook-helpers.js';
+import { resolvePlaybookPath, loadPlaybook } from './core/index.js';
 import type { MethodologyPlaybook, InstanceTemplate, NamingPattern, PropertyMapping, AppliesTo } from './playbook-types.js';
 
 export const prepareInstanceTool = {
@@ -345,7 +345,9 @@ export const prepareInstanceHandler = async (params: {
         let playbook: MethodologyPlaybook | null = null;
         try {
             const playbookPath = resolvePlaybookPath({ workspacePath });
-            playbook = loadPlaybook(playbookPath);
+            if (playbookPath) {
+                playbook = loadPlaybook(playbookPath);
+            }
         } catch {
             // No playbook - use defaults
         }

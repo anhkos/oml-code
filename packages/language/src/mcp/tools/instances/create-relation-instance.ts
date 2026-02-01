@@ -34,6 +34,19 @@ Note: For simple property-based relations (like requirement:expresses), use crea
     paramsSchema,
 };
 
+export const createRelationInstanceMetadata = {
+    id: 'create_relation_instance',
+    displayName: 'Create Relation Instance',
+    layer: 'description' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a relation instance in a description file',
+    description: 'Creates a new relation instance in a description file linking source and target concept instances.',
+    tags: ['instance-creation', 'relation-instance', 'description'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function buildPropertyValues(propVals: PropertyValueParam[] | undefined, indent: string, eol: string): string {
     if (!propVals || propVals.length === 0) return '';
     

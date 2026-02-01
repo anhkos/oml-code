@@ -16,6 +16,19 @@ Consider running validate_oml after this operation to check for broken reference
     paramsSchema,
 };
 
+export const deleteImportMetadata = {
+    id: 'delete_import',
+    displayName: 'Delete Import',
+    layer: 'core' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove an import statement from an ontology',
+    description: 'Removes an import statement from an ontology by its prefix.',
+    tags: ['import-management', 'ontology-structure', 'safety'],
+    dependencies: ['validate_oml'],
+    addedDate: '2024-01-01',
+};
+
 export const deleteImportHandler = async (
     { ontology, prefix }: { ontology: string; prefix: string }
 ) => {

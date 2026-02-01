@@ -42,6 +42,19 @@ Example: "concept Stakeholder" defines a TYPE that can have instances.`,
     paramsSchema,
 };
 
+export const createConceptMetadata = {
+    id: 'create_concept',
+    displayName: 'Create Concept',
+    layer: 'vocabulary' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a concept (type definition) in a vocabulary file',
+    description: 'Creates a new concept in a vocabulary file for defining reusable types.',
+    tags: ['type-definition', 'concept', 'vocabulary', 'ai-friendly'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const createConceptHandler = async (
     { ontology, name, keys, instanceEnumeration, superTerms, annotations }: { ontology: string; name: string; keys?: string[][]; instanceEnumeration?: string[]; superTerms?: string[]; annotations?: AnnotationParam[] }
 ) => {

@@ -1,28 +1,28 @@
 import type { ToolRegistration } from '../types.js';
-import { addSpecializationHandler, addSpecializationTool } from './add-specialization.js';
-import { deleteSpecializationHandler, deleteSpecializationTool } from './delete-specialization.js';
-import { addRestrictionHandler, addRestrictionTool } from './add-restriction.js';
-import { addEquivalenceHandler, addEquivalenceTool } from './add-equivalence.js';
-import { updateAnnotationHandler, updateAnnotationTool } from './update-annotation.js';
-import { updateEquivalenceHandler, updateEquivalenceTool } from './update-equivalence.js';
-import { updateKeyHandler, updateKeyTool } from './update-key.js';
-import { updateRestrictionHandler, updateRestrictionTool } from './update-restriction.js';
-import { deleteAnnotationHandler, deleteAnnotationTool } from './delete-annotation.js';
-import { deleteRestrictionHandler, deleteRestrictionTool } from './delete-restriction.js';
-import { deleteEquivalenceHandler, deleteEquivalenceTool } from './delete-equivalence.js';
-import { deleteKeyHandler, deleteKeyTool } from './delete-key.js';
+import { addSpecializationHandler, addSpecializationTool, addSpecializationMetadata } from './add-specialization.js';
+import { deleteSpecializationHandler, deleteSpecializationTool, deleteSpecializationMetadata } from './delete-specialization.js';
+import { addRestrictionHandler, addRestrictionTool, addRestrictionMetadata } from './add-restriction.js';
+import { addEquivalenceHandler, addEquivalenceTool, addEquivalenceMetadata } from './add-equivalence.js';
+import { updateAnnotationHandler, updateAnnotationTool, updateAnnotationMetadata } from './update-annotation.js';
+import { updateEquivalenceHandler, updateEquivalenceTool, updateEquivalenceMetadata } from './update-equivalence.js';
+import { updateKeyHandler, updateKeyTool, updateKeyMetadata } from './update-key.js';
+import { updateRestrictionHandler, updateRestrictionTool, updateRestrictionMetadata } from './update-restriction.js';
+import { deleteAnnotationHandler, deleteAnnotationTool, deleteAnnotationMetadata } from './delete-annotation.js';
+import { deleteRestrictionHandler, deleteRestrictionTool, deleteRestrictionMetadata } from './delete-restriction.js';
+import { deleteEquivalenceHandler, deleteEquivalenceTool, deleteEquivalenceMetadata } from './delete-equivalence.js';
+import { deleteKeyHandler, deleteKeyTool, deleteKeyMetadata } from './delete-key.js';
 
 export const axiomTools: ToolRegistration[] = [
-    { tool: addSpecializationTool, handler: addSpecializationHandler },
-    { tool: deleteSpecializationTool, handler: deleteSpecializationHandler },
-    { tool: addRestrictionTool, handler: addRestrictionHandler },
-    { tool: addEquivalenceTool, handler: addEquivalenceHandler },
-    { tool: updateAnnotationTool, handler: updateAnnotationHandler },
-    { tool: updateEquivalenceTool, handler: updateEquivalenceHandler },
-    { tool: updateKeyTool, handler: updateKeyHandler },
-    { tool: updateRestrictionTool, handler: updateRestrictionHandler },
-    { tool: deleteAnnotationTool, handler: deleteAnnotationHandler },
-    { tool: deleteRestrictionTool, handler: deleteRestrictionHandler },
-    { tool: deleteEquivalenceTool, handler: deleteEquivalenceHandler },
-    { tool: deleteKeyTool, handler: deleteKeyHandler },
+    { tool: addSpecializationTool, handler: addSpecializationHandler, metadata: addSpecializationMetadata },
+    { tool: deleteSpecializationTool, handler: deleteSpecializationHandler, metadata: deleteSpecializationMetadata },
+    { tool: addRestrictionTool, handler: addRestrictionHandler, metadata: addRestrictionMetadata },
+    { tool: addEquivalenceTool, handler: addEquivalenceHandler, metadata: addEquivalenceMetadata },
+    { tool: updateAnnotationTool, handler: updateAnnotationHandler, metadata: updateAnnotationMetadata },
+    { tool: updateEquivalenceTool, handler: updateEquivalenceHandler, metadata: updateEquivalenceMetadata },
+    { tool: updateKeyTool, handler: updateKeyHandler, metadata: updateKeyMetadata },
+    { tool: updateRestrictionTool, handler: updateRestrictionHandler, metadata: updateRestrictionMetadata },
+    { tool: deleteAnnotationTool, handler: deleteAnnotationHandler, metadata: deleteAnnotationMetadata },
+    { tool: deleteRestrictionTool, handler: deleteRestrictionHandler, metadata: deleteRestrictionMetadata },
+    { tool: deleteEquivalenceTool, handler: deleteEquivalenceHandler, metadata: deleteEquivalenceMetadata },
+    { tool: deleteKeyTool, handler: deleteKeyHandler, metadata: deleteKeyMetadata },
 ];

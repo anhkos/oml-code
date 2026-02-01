@@ -17,6 +17,19 @@ If an entity has multiple keys, specify keyIndex to remove a specific one.`,
     paramsSchema,
 };
 
+export const deleteKeyMetadata = {
+    id: 'delete_key',
+    displayName: 'Delete Key',
+    layer: 'axiom' as const,
+    severity: 'medium' as const,
+    version: '1.0.0',
+    shortDescription: 'Remove a key axiom from an entity',
+    description: 'Removes a key axiom (uniqueness constraint) from an entity.',
+    tags: ['axiom', 'key', 'delete', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deleteKeyHandler = async (
     { ontology, entity, keyIndex = 0 }: { ontology: string; entity: string; keyIndex?: number }
 ) => {

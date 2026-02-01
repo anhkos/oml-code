@@ -34,6 +34,19 @@ Annotations like dc:title and dc:description are auto-imported.`,
     paramsSchema,
 };
 
+export const createOntologyMetadata = {
+    id: 'create_ontology',
+    displayName: 'Create Ontology',
+    layer: 'core' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Create a new OML ontology file',
+    description: 'Creates a new OML ontology file (vocabulary, description, or bundle).',
+    tags: ['ontology-creation', 'core'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function formatAnnotation(annotation: AnnotationParam, eol: string): string {
     const values: string[] = [];
     if (annotation.literalValues && annotation.literalValues.length > 0) {

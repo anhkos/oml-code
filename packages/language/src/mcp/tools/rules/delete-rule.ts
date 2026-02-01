@@ -14,6 +14,19 @@ Rules define inference patterns with antecedent and consequent clauses.`,
     paramsSchema,
 };
 
+export const deleteRuleMetadata = {
+    id: 'delete_rule',
+    displayName: 'Delete Rule',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Delete a rule from a vocabulary',
+    description: 'Deletes a rule from a vocabulary.',
+    tags: ['rule-deletion', 'axiom', 'logic'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 export const deleteRuleHandler = async (
     { ontology, ruleName }: { ontology: string; ruleName: string }
 ) => {

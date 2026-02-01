@@ -297,16 +297,6 @@ function inferPurpose(fileName: string, types: string[]): string {
 }
 
 /**
- * Sanitize a string for use as an ID.
- */
-function sanitizeId(str: string): string {
-    return str
-        .replace(/:/g, '-')
-        .replace(/[^a-zA-Z0-9-]/g, '')
-        .toLowerCase();
-}
-
-/**
  * Check if an OML file is a description using the Langium parser.
  */
 async function isDescriptionFile(filePath: string): Promise<boolean> {
@@ -351,6 +341,50 @@ async function findDescriptionFiles(dirPath: string): Promise<string[]> {
     return files;
 }
 
+
+
+/**
+ * Find a methodology playbook in the given directory (recursive).
+ */
+function findPlaybook(dirPath: string): string | null {
+    try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        
+        // Check for playbook files in current directory
+        for (const entry of entries) {
+            if (entry.isFile() && (
+                entry.name.endsWith('_playbook.yaml') || 
+                entry.name === 'methodology_playbook.yaml' ||
+                entry.name.endsWith('_playbook.yml') ||
+                entry.name.endsWith('_playbook.json')
+            )) {
+                return path.join(dirPath, entry.name);
+            }
+        }
+        
+        // Recurse into subdirectories
+        for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                const found = findPlaybook(path.join(dirPath, entry.name));
+                if (found) return found;
+            }
+        }
+    } catch {
+        // Skip directories we can't read
+    }
+    return null;
+}
+
+/**
+ * Sanitize a string for use as an ID.
+ */
+function sanitizeId(str: string): string {
+    return str
+        .replace(/:/g, '-')
+        .replace(/[^a-zA-Z0-9-]/g, '')
+        .toLowerCase();
+}
+
 /**
  * Format schemas as YAML.
  */
@@ -372,37 +406,6 @@ function formatAsYaml(schemas: Record<string, DescriptionSchema>): string {
  */
 function formatAsJson(schemas: Record<string, DescriptionSchema>): string {
     return JSON.stringify({ descriptions: schemas }, null, 2);
-}
-
-/**
- * Find a methodology playbook in the given directory (recursive).
- */
-function findPlaybook(dirPath: string): string | null {
-    try {
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        
-        // Check for playbook files in current directory
-        for (const entry of entries) {
-            if (entry.isFile() && (
-                entry.name.endsWith('_playbook.yaml') || 
-                entry.name === 'methodology_playbook.yaml' ||
-                entry.name.endsWith('_playbook.yml')
-            )) {
-                return path.join(dirPath, entry.name);
-            }
-        }
-        
-        // Recurse into subdirectories
-        for (const entry of entries) {
-            if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-                const found = findPlaybook(path.join(dirPath, entry.name));
-                if (found) return found;
-            }
-        }
-    } catch {
-        // Skip directories we can't read
-    }
-    return null;
 }
 
 /**

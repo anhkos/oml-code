@@ -73,6 +73,19 @@ Call with:
     paramsSchema,
 };
 
+export const createConceptInstanceMetadata = {
+    id: 'create_concept_instance',
+    displayName: 'Create Concept Instance',
+    layer: 'description' as const,
+    severity: 'critical' as const,
+    version: '1.0.0',
+    shortDescription: 'Create an instance of a concept in a description file',
+    description: 'Creates a new concept instance (individual) in a description file with property and relation assertions.',
+    tags: ['instance-creation', 'description', 'ai-friendly', 'core'],
+    dependencies: ['route_instance'],
+    addedDate: '2024-01-01',
+};
+
 function buildPropertyValues(propVals: PropertyValueParam[] | undefined, indent: string, eol: string): string {
     if (!propVals || propVals.length === 0) return '';
     

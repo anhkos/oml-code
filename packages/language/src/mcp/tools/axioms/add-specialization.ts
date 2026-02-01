@@ -16,6 +16,19 @@ export const addSpecializationTool = {
     paramsSchema,
 };
 
+export const addSpecializationMetadata = {
+    id: 'add_specialization',
+    displayName: 'Add Specialization',
+    layer: 'axiom' as const,
+    severity: 'high' as const,
+    version: '1.0.0',
+    shortDescription: 'Add super terms to a term specialization',
+    description: 'Adds super terms to a term specialization clause to extend existing type hierarchies.',
+    tags: ['axiom', 'specialization', 'type-hierarchy', 'vocabulary'],
+    dependencies: [],
+    addedDate: '2024-01-01',
+};
+
 function extractSpecialization(termText: string) {
     const idx = termText.indexOf('<');
     if (idx === -1) return { exists: false } as const;
