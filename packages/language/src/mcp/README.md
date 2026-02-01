@@ -2,30 +2,111 @@
 
 A Model Context Protocol (MCP) server that provides tools for creating, modifying, and managing OML (Ontological Modeling Language) ontologies programmatically.
 
-## Overview
+## What is the OML MCP Server?
 
-The OML MCP Server exposes a comprehensive set of tools that allow AI assistants and other MCP clients to manipulate OML files. It handles workspace discovery, symbol resolution, import management, and validation automatically.
+The OML MCP Server is an AI-native tool that bridges OML ontologies and AI assistants through the Model Context Protocol standard. It enables:
 
-## Configuration
+- **Programmatic Ontology Manipulation**: Create, read, update, and delete OML ontology components (concepts, relations, instances, etc.)
+- **Intelligent Symbol Resolution**: Automatically resolve cross-references and manage imports across your workspace
+- **Methodology Enforcement**: Define and enforce modeling conventions across your entire ontology
+- **Semantic Validation**: Validate OML syntax, semantics, and consistency rules
+- **AI-Driven Development**: Work with AI assistants to design and evolve your ontologies interactively
 
-### Environment Variables
+### Key Capabilities
 
-- `OML_WORKSPACE_ROOT` - Sets the workspace root directory. If not set, the server uses the current working directory.
+- **Specialized tools** for ontology engineering workflows
+- **Bidirectional relation handling** with direction preferences
+- **Methodology playbooks** for consistent modeling patterns (e.g., Sierra methodology)
+- **Automatic import management** and symbol resolution across workspaces
+- **Comprehensive error handling** with remediation suggestions
 
-### Running the Server
+## Setup Instructions
 
-The server communicates over stdio using the MCP protocol:
+### Prerequisites
 
+- Node.js 18+ (or compatible runtime)
+- OML language package built (`npm run build` in the root workspace)
+- An OML workspace with vocabulary and/or description files
+
+### Installation
+
+1. **Build the entire OML workspace** (if not already built):
+```bash
+cd c:\Users\sokhn\OneDrive\Documents\GitHub\oml-code
+npm run build
+```
+
+2. **Start the MCP server** in one of two ways:
+
+**Option A: Direct execution** (for development/testing)
 ```bash
 node packages/language/src/mcp/server.js
 ```
 
-Or via the compiled output after building:
-
+**Option B: Via compiled output** (after building)
 ```bash
 npm run build
 node out/language/src/mcp/server.js
 ```
+
+3. **Configure your MCP client** to connect to the server over stdio
+
+### Environment Setup
+
+The server respects the following environment variables:
+
+- `OML_WORKSPACE_ROOT` - Set the root directory for your OML workspace
+  ```bash
+  set OML_WORKSPACE_ROOT=c:\Users\sokhn\OneDrive\Documents\GitHub\sierra-method
+  node packages/language/src/mcp/server.js
+  ```
+
+If not set, the server uses the current working directory.
+
+### Testing the Server
+
+Once running, you can test the server by calling a simple tool through your MCP client. For instance, with an OML file open, you can ask GitHub Copilot: "Can you validate my OML code with MCP tools?"
+
+```json
+{
+  "tool": "validate_oml",
+  "params": {
+    "uri": "path/to/your/file.oml"
+  }
+}
+```
+
+Expected response: Validation results with any syntax/semantic errors found.
+
+## Getting MCP Clients to Use the Tools
+
+### The Challenge
+
+MCP clients (like GitHub Copilot) have powerful tools available, but nudging them to use the tools can be a bit tricky. AI assistants are designed to be helpful and can solve many problems through reasoning alone, so without proper guidance, they may not reach for MCP tools even when they would be most effective.
+
+### Best Practices
+
+**Use explicit instructions in your prompts:**
+- "Use the OML MCP tools" (usually works best, can state this at the beginning of a chat)
+- "Call the enforce_methodology_rules tool to check this against the playbook"
+- "Use create_concept_instance to add this to the ontology"
+
+**Set context in your system prompt / Copilot instructions:**
+- List which tools are available and their purposes
+- Give examples of when each tool should be used
+- Explain that tools should be used for code generation and validation
+
+**Provide tool hints in user messages:**
+- "I need to validate this OML file. Can you use the validate oml tool?"
+- "Create a new concept using the create_concept tool"
+
+### Coming Soon: Complete Guide
+
+I will write a comprehensive guide on prompting strategies and Copilot instructions soon. In the meantime, experiment with explicit tool requests and observe which prompts get the best results.
+
+## Overview
+
+## Configuration
 
 ## Tool Categories
 
@@ -117,51 +198,156 @@ Higher-level tools for common workflows.
 | `add_to_bundle` | Adds ontologies to a bundle |
 | `smart_create_vocabulary` | Creates a vocabulary with automatic imports |
 | `generate_vocabulary_bundle` | Generates a bundle for vocabularies |
-| `extract_methodology_rules` | Extracts a "Playbook" from vocabulary files for consistent modeling |
+| `clarify_methodology_preferences` | Interactively extract relations and collect voice/direction preferences |
+| `extract_methodology_rules` | Generates a "Playbook" from vocabulary files for consistent modeling |
 | `enforce_methodology_rules` | Validates descriptions against a methodology playbook |
 
-#### Methodology Playbook System
+#### Understanding the Methodology Playbook System
 
-The playbook tools enable **methodology enforcement** for consistent description modeling:
+The playbook tools enable **methodology-driven modeling** - the ability to define and enforce consistent modeling patterns across your entire ontology. This is essential for large teams working on complex systems.
 
-1. **Extract Rules** (`extract_methodology_rules`): Parses vocabulary files and extracts:
-   - Bidirectional relations (prompts user for preferred direction)
-   - Containment patterns (Container/Contained hierarchies)
-   - Allocation rules
-   - Required properties from restrictions
-   
-2. **Enforce Rules** (`enforce_methodology_rules`): Validates descriptions against the playbook:
-   - Detects wrong relation directions
-   - Suggests corrections with proper reformatting
-   - Can auto-transform assertions to canonical form
+**The Three-Step Workflow:**
 
-Example workflow:
+**Step 1: Clarify Preferences** (`clarify_methodology_preferences`)
+- Extracts all bidirectional relations from your vocabulary files
+- Presents them to you with clear active/passive voice alternatives
+- Collects your preference for each relation pair
+- Returns a structured preference object
+
+Example: For the relation `requirement:expresses` ↔ `requirement:isExpressedBy`:
+- **Active voice** (forward): `Stakeholder expresses Requirement`
+- **Passive voice** (reverse): `Requirement isExpressedBy Stakeholder`
+
+You choose which direction your team prefers, based on domain semantics.
+
+**Step 2: Extract Methodology Rules** (`extract_methodology_rules`)
+- Reads your vocabulary files (concepts, relations, constraints)
+- Applies your voice/direction preferences
+- Generates a machine-readable YAML playbook that codifies your methodology
+- The playbook captures:
+  - Bidirectional relation rules (forward name, reverse name, preferred direction)
+  - Relation entity rules (reified relations with complex structure)
+  - Concept rules (key axioms, required properties)
+
+**Step 3: Enforce Rules During Modeling** (`enforce_methodology_rules`)
+- Validates description files against your playbook
+- Detects violations (e.g., using wrong relation direction)
+- Generates detailed violation reports with:
+  - Exact line number and instance name
+  - Explanation of the violation
+  - Suggested corrections
+- Can optionally auto-transform code to canonical form
+
+**Complete Example Workflow:**
+
 ```bash
-# Step 1: Extract rules (will prompt for decisions on bidirectional relations)
-extract_methodology_rules(
-  vocabularyPaths: ["sierra/base.oml", "sierra/requirement.oml", ...],
-  outputPath: "sierra_playbook.yaml",
-  methodologyName: "Sierra"
-)
-
-# Step 2: Make decisions and re-run
-extract_methodology_rules(
-  vocabularyPaths: [...],
-  outputPath: "sierra_playbook.yaml",
-  decisions: [
-    { subject: "requirement:expresses", chosenOption: "reverse", rationale: "Requirements own the relationship" }
+# 1. Extract relations and collect preferences
+clarify_methodology_preferences(
+  vocabularyFiles: [
+    "sierra/base.oml",
+    "sierra/requirement.oml", 
+    "sierra/stakeholder.oml"
   ]
 )
+# Output: List of relations with voice options
 
-# Step 3: Enforce during description authoring
-enforce_methodology_rules(
-  playbookPath: "sierra_playbook.yaml",
-  descriptionPath: "my-system.oml",
-  mode: "validate"  // or "suggest" or "transform"
+# User response: Prefer passive voice
+
+# 2. Generate playbook
+extract_methodology_rules(
+  vocabularyFiles: [
+    "sierra/base.oml",
+    "sierra/requirement.oml", 
+    "sierra/stakeholder.oml"
+  ],
+  methodologyName: "Sierra",
+  preferences: {
+    voicePreference: "passive",
+    specificChoices: {
+      "expresses": "reverse",
+      "refines": "reverse",
+      "allocates": "forward"
+    }
+  },
+  outputPath: "sierra/methodology_playbook.yaml"
 )
+# Output: sierra/methodology_playbook.yaml (YAML file with all rules)
+
+# 3. Enforce during description authoring
+enforce_methodology_rules(
+  playbookPath: "sierra/methodology_playbook.yaml",
+  descriptionPath: "my-system-requirements.oml",
+  mode: "validate"
+)
+# Output: Validation results, violations, and suggested corrections
 ```
 
-See `sierra_playbook_example.yaml` for a complete example playbook.
+**Example Playbook Structure:**
+
+```yaml
+metadata:
+  methodology: "Sierra"
+  version: "1.0"
+  voicePreference: "passive"
+  generatedFrom:
+    - "sierra/base.oml"
+    - "sierra/requirement.oml"
+
+relationRules:
+  - forwardRelation: "expresses"
+    reverseRelation: "isExpressedBy"
+    owningConcept: "Requirement"
+    preferredDirection: "reverse"
+    explanation: "Requirements are expressed by stakeholders (passive voice)"
+    
+  - forwardRelation: "refines"
+    reverseRelation: "isRefinedBy"
+    owningConcept: "Requirement"
+    preferredDirection: "reverse"
+    explanation: "Requirements are refined by other requirements (passive voice)"
+    
+  - forwardRelation: "allocates"
+    reverseRelation: "isAllocatedBy"
+    owningConcept: "Actor"
+    preferredDirection: "forward"
+    explanation: "Actors actively allocate requirements (active voice)"
+```
+
+**Example Violation Report:**
+
+```
+⚠️ Found 1 violation of the Sierra methodology
+
+WRONG_RELATION_DIRECTION
+❌ expresses ↔ isExpressedBy
+On line 12, instance SafetyOfficer uses: requirement:expresses R2
+Should use: requirement:isExpressedBy instead
+
+Suggested Correction:
+Remove from SafetyOfficer:
+    requirement:expresses R2
+    
+Add to R2:
+    requirement:isExpressedBy SafetyOfficer
+```
+
+**Why This Matters:**
+
+- **Consistency**: Ensures all models follow the same patterns
+- **Understandability**: Teams know exactly which direction to use for each relation
+- **Automation**: AI assistants can automatically enforce rules and suggest corrections
+- **Evolution**: As methodology evolves, update the playbook and re-validate all descriptions
+- **Documentation**: The playbook serves as executable methodology documentation
+
+**Technical Details:**
+
+The playbook system works by:
+1. Building a bidirectional lookup map for all relations (forward → rule, reverse → rule)
+2. Parsing each description file to extract property assertions
+3. For each assertion, checking if it uses the preferred direction
+4. Reporting violations with exact locations and suggesting corrections
+
+See the methodology tools section in [IDEAS.md](./IDEAS.md) for implementation notes.
 
 ### Preference Tools
 
