@@ -5,8 +5,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import yaml from 'js-yaml';
 import { resolveWorkspacePath } from '../common.js';
+import { loadPlaybook as loadPlaybookCached, savePlaybook as savePlaybookCached } from './core/index.js';
 import type { MethodologyPlaybook, DescriptionSchema, DescriptionConstraint } from './playbook-types.js';
 
 // ============================================================================
@@ -124,9 +124,8 @@ export function loadPlaybook(playbookPath: string): MethodologyPlaybook {
     if (!fs.existsSync(resolvedPath)) {
         throw new Error(`Playbook not found: ${resolvedPath}`);
     }
-    
-    const content = fs.readFileSync(resolvedPath, 'utf-8');
-    return yaml.load(content) as MethodologyPlaybook;
+
+    return loadPlaybookCached(resolvedPath);
 }
 
 /**
@@ -134,16 +133,8 @@ export function loadPlaybook(playbookPath: string): MethodologyPlaybook {
  */
 export function savePlaybook(playbookPath: string, playbook: MethodologyPlaybook): void {
     const resolvedPath = resolveWorkspacePath(playbookPath);
-    
-    const content = yaml.dump(playbook, {
-        indent: 2,
-        lineWidth: 120,
-        noRefs: true,
-        sortKeys: false,
-        quotingType: '"',
-    });
-    
-    fs.writeFileSync(resolvedPath, content, 'utf-8');
+
+    savePlaybookCached(resolvedPath, playbook);
 }
 
 // ============================================================================

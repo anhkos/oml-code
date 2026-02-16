@@ -121,7 +121,7 @@ export async function getFreshDocument(fileUri: string) {
     // Check if we have a valid cached version
     const cached = getCachedDocument(filePath);
     if (cached) {
-        return cached;
+        return cached.parseResult;
     }
     
     // No cache or cache is stale - fetch from Langium

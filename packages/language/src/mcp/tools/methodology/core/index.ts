@@ -28,6 +28,8 @@ export {
     resolvePlaybookPath,
     loadPlaybook,
     savePlaybook,
+    getPlaybookCacheInfo,
+    invalidatePlaybookCache,
     isDescriptionFile,
     findDescriptionFiles,
     detectPlaybookPath,

@@ -1,8 +1,9 @@
+import * as fs from 'fs';
 import { z } from 'zod';
 import { AnnotationParam, PropertyValueParam, collectImportPrefixes, formatAnnotations, formatLiteral, insertBeforeClosingBrace, normalizeNameCase, stripLocalPrefix, appendValidationIfSafeMode } from '../common.js';
 import { annotationParamSchema, propertyValueParamSchema } from '../schemas.js';
 import { loadDescriptionDocument, writeDescriptionAndNotify, findInstance, OntologyNotFoundError, WrongOntologyTypeError } from '../description-common.js';
-import { resolveSymbolName, createResolutionErrorResult, type OmlSymbolType } from '../query/index.js';
+import { resolveSymbolName, createResolutionErrorResult, parseVocabularyForProperties, type OmlSymbolType } from '../query/index.js';
 import { preferencesState } from '../preferences/preferences-state.js';
 import { ensureImportsHandler } from '../methodology/ensure-imports.js';
 
@@ -18,6 +19,13 @@ export const createConceptInstanceTool = {
     name: 'create_concept_instance' as const,
     description: `Creates a concept instance in a DESCRIPTION ontology. Use this for description modeling - creating specific individuals that are instances of concepts defined in vocabularies.
 
+⚠️ CRITICAL: DO NOT CALL THIS TOOL IN PARALLEL WITH OTHER TOOLS.
+Call this tool SEQUENTIALLY, one instance at a time, waiting for each to complete.
+
+⚠️ PREREQUISITE: The target file MUST already be a valid description ontology.
+If the file is EMPTY or does NOT EXIST, you MUST call create_ontology FIRST.
+NEVER manually create the file using file creation tools.
+
 ⚠️ REQUIRED WORKFLOW - FOLLOW THESE STEPS:
 
 1. **CHECK DESCRIPTION SCHEMAS FIRST** using route_instance tool:
@@ -25,15 +33,17 @@ export const createConceptInstanceTool = {
    - Shows what properties are typically required
    - Validates the instance will conform to methodology rules
 
+    ✅ SKIP THIS STEP if the user has already provided a complete OML description snippet
+    (explicit description block + instances + required properties/relations) and the target
+    description file path is known.
+
 2. **VALIDATE REFERENCED INSTANCES**:
    - If adding relations (e.g., requirement:isExpressedBy), ensure target instances exist
    - Verify target instances are of the correct type (e.g., stakeholder, not Element)
    - Read the description file first to see available instances
 
-3. **PROBE USER FOR MISSING REQUIRED PROPERTIES**:
-   - If schemas indicate required properties (like isExpressedBy), ASK THE USER
-   - Do NOT assume or make up values
-   - Example: "Which stakeholder expresses this requirement? (MissionCommander, SafetyOfficer, or other?)"
+
+    ✅ SKIP QUESTIONS if the user already supplied the required properties/relations in their request.
 
 IMPORTANT: This tool is for DESCRIPTION files only. Instances are specific individuals (like "FireFighter", "R1"), not type definitions.
 
@@ -43,32 +53,6 @@ OML Instance Syntax:
   instance <name> : <type1>, <type2> [
       <property> <value>
       <relation> <targetInstance>
-  ]
-
-Example 1 - Stakeholder instance:
-  instance FireFighter : requirement:Stakeholder, ent:Actor [
-      base:description "Frontline operator fighting fires"
-  ]
-
-Call with:
-- name: "FireFighter"
-- types: ["requirement:Stakeholder", "ent:Actor"]
-- propertyValues: [{"property": "base:description", "literalValues": [{"type": "quoted", "value": "Frontline operator fighting fires"}]}]
-
-Example 2 - Requirement with relation assertion:
-  instance R1 : requirement:Requirement [
-      base:description "Real-Time Map"
-      base:expression "The system shall display real-time fire and drone locations."
-      requirement:isExpressedBy Operator
-  ]
-
-Call with:
-- name: "R1"
-- types: ["requirement:Requirement"]
-- propertyValues: [
-    {"property": "base:description", "literalValues": [{"type": "quoted", "value": "Real-Time Map"}]},
-    {"property": "base:expression", "literalValues": [{"type": "quoted", "value": "The system shall display real-time fire and drone locations."}]},
-    {"property": "requirement:isExpressedBy", "referencedValues": ["Operator"]}
   ]`,
     paramsSchema,
 };
@@ -173,6 +157,66 @@ export const createConceptInstanceHandler = async (params: {
                 }
                 resolvedTypes.push(stripLocalPrefix(resolution.qualifiedName!, description.prefix));
                 verifiedTypes.push(`${t} → ${resolution.qualifiedName}`);
+            }
+        }
+
+        // Auto-resolve property names by discovering available properties from type vocabularies
+        const autoResolvedProperties: string[] = [];
+        if (params.propertyValues && params.propertyValues.length > 0 && resolvedTypes.length > 0) {
+            // Get unique vocabulary prefixes from resolved types
+            const vocabPrefixes = new Set<string>();
+            for (const type of resolvedTypes) {
+                if (type.includes(':')) {
+                    vocabPrefixes.add(type.split(':')[0]);
+                }
+            }
+
+            // Try to discover properties from each vocabulary
+            const discoveredProps = new Map<string, { qualified: string; vocab: string }>();
+            for (const prefix of vocabPrefixes) {
+                // Find the vocabulary file from imports
+                const importMatch = text.match(new RegExp(`extends\\s+<([^>]+)>\\s+as\\s+${prefix}\\b`, 'i'));
+                if (importMatch) {
+                    const vocabUri = importMatch[1];
+                    try {
+                        // Convert URI to file path (simple approach - assumes file:// scheme)
+                        const vocabPath = vocabUri.replace('file://', '').replace('file:', '');
+                        const props = await parseVocabularyForProperties(vocabPath);
+                        
+                        // Index all properties by simple name (case-insensitive)
+                        for (const rel of props.relations) {
+                            const simpleName = rel.name.toLowerCase();
+                            discoveredProps.set(simpleName, { qualified: `${prefix}:${rel.name}`, vocab: prefix });
+                            if (rel.reverseName) {
+                                const reverseSimple = rel.reverseName.toLowerCase();
+                                discoveredProps.set(reverseSimple, { qualified: `${prefix}:${rel.reverseName}`, vocab: prefix });
+                            }
+                        }
+                        for (const scalar of props.scalarProperties) {
+                            const simpleName = scalar.name.toLowerCase();
+                            discoveredProps.set(simpleName, { qualified: `${prefix}:${scalar.name}`, vocab: prefix });
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors - fall back to regular resolution
+                        console.error(`[create_concept_instance] Failed to parse vocabulary for ${prefix}:`, e);
+                    }
+                }
+            }
+
+            // Auto-resolve simple property names
+            for (const pv of params.propertyValues) {
+                const prop = pv.property;
+                // Skip already-qualified properties
+                if (prop.includes(':')) {
+                    continue;
+                }
+                
+                // Try to find match in discovered properties
+                const match = discoveredProps.get(prop.toLowerCase());
+                if (match) {
+                    pv.property = match.qualified;
+                    autoResolvedProperties.push(`${prop} → ${match.qualified}`);
+                }
             }
         }
 
@@ -304,6 +348,31 @@ export const createConceptInstanceHandler = async (params: {
         const newContent = insertBeforeClosingBrace(currentText, instanceText);
         await writeDescriptionAndNotify(currentFilePath, currentFileUri, newContent);
 
+        // Verify the instance was persisted (guards against stale writes or editor race conditions)
+        const instanceRegex = new RegExp(`\\binstance\\s+${name}\\b`);
+        let persistedText = fs.readFileSync(currentFilePath, 'utf-8');
+        if (!instanceRegex.test(persistedText)) {
+            // Retry once against the latest file contents
+            const retryContent = insertBeforeClosingBrace(persistedText, instanceText);
+            await writeDescriptionAndNotify(currentFilePath, currentFileUri, retryContent);
+            persistedText = fs.readFileSync(currentFilePath, 'utf-8');
+            if (!instanceRegex.test(persistedText)) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: 'text' as const,
+                        text: `❌ WRITE VERIFICATION FAILED\n\n` +
+                            `The instance "${name}" did not appear in the file after two write attempts.\n` +
+                            `This can happen if the file is open with unsaved changes or another process overwrote the file.\n\n` +
+                            `🔧 ACTION REQUIRED:\n` +
+                            `  1. Save and close the file in the editor\n` +
+                            `  2. Retry create_concept_instance for "${name}"\n` +
+                            `  3. If it keeps happening, restart the MCP server and VS Code`
+                    }],
+                };
+            }
+        }
+
         const notes: string[] = [];
         if (missing.length > 0) {
             notes.push(`Auto-added imports for: ${missing.join(', ')}.`);
@@ -318,6 +387,7 @@ export const createConceptInstanceHandler = async (params: {
                 { type: 'text' as const, text: `✓ Created concept instance "${name}"` },
                 ...(notes.length ? [{ type: 'text' as const, text: notes.join(' ') }] : []),
                 ...(verifiedTypes.length ? [{ type: 'text' as const, text: `✓ Verified types: ${verifiedTypes.join(', ')}` }] : []),
+                ...(autoResolvedProperties.length ? [{ type: 'text' as const, text: `✓ Auto-resolved properties: ${autoResolvedProperties.join(', ')}` }] : []),
             ],
         };
 
@@ -331,21 +401,43 @@ export const createConceptInstanceHandler = async (params: {
                 isError: true,
                 content: [{
                     type: 'text' as const,
-                    text: `❌ ONTOLOGY NOT FOUND: ${error.filePath}\n\n` +
+                    text: `❌ STOP - ONTOLOGY NOT FOUND: ${error.filePath}\n\n` +
                         `The description file does not exist yet.\n\n` +
-                        `🔧 ACTION REQUIRED:\n` +
-                        `  1. First, create the description using create_ontology with kind="description"\n` +
-                        `  2. Then add_import to include the vocabularies defining your concepts\n` +
-                        `  3. Then call create_concept_instance again\n\n` +
-                        `Example:\n` +
-                        `  create_ontology(filePath="${error.filePath}", kind="description", namespace="...", prefix="...")\n` +
-                        `  add_import(ontology="${error.filePath}", targetOntologyPath="path/to/vocabulary.oml")\n` +
-                        `  create_concept_instance(ontology="${error.filePath}", name="${name}", types=[...])`
+                        `⛔ DO NOT manually create this file. DO NOT use create_file or any file creation tool.\n` +
+                        `⛔ DO NOT call multiple tools in parallel.\n\n` +
+                        `🔧 ACTION REQUIRED (call these tools SEQUENTIALLY, waiting for each to complete):\n` +
+                        `  STEP 1: create_ontology(filePath="${error.filePath}", kind="description", namespace="...", prefix="...")\n` +
+                        `  STEP 2: add_import(ontology="${error.filePath}", targetOntologyPath="path/to/vocabulary.oml")\n` +
+                        `  STEP 3: create_concept_instance(ontology="${error.filePath}", name="${name}", types=[...])\n\n` +
+                        `Call create_ontology NOW. Wait for it to complete. Then proceed to add_import.`
                 }],
             };
         }
         
         if (error instanceof WrongOntologyTypeError) {
+            // If the file exists but is empty, instruct to initialize it with create_ontology
+            try {
+                const existingText = fs.readFileSync(error.filePath, 'utf-8');
+                if (existingText.trim().length === 0) {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: 'text' as const,
+                            text: `❌ STOP - EMPTY FILE: ${error.filePath}\n\n` +
+                                `The target file exists but is empty. Initialize it as a DESCRIPTION ontology first.\n\n` +
+                                `⛔ DO NOT manually write to this file. DO NOT use create_file or replace_string_in_file.\n` +
+                                `⛔ DO NOT call multiple tools in parallel.\n\n` +
+                                `🔧 ACTION REQUIRED (call these tools SEQUENTIALLY, waiting for each to complete):\n` +
+                                `  STEP 1: create_ontology(filePath="${error.filePath}", kind="description", namespace="...", prefix="...")\n` +
+                                `  STEP 2: add_import(ontology="${error.filePath}", targetOntologyPath="path/to/vocabulary.oml")\n` +
+                                `  STEP 3: create_concept_instance(ontology="${error.filePath}", name="${name}", types=[...])\n\n` +
+                                `Call create_ontology NOW with this exact filePath. Wait for it to complete. Then proceed.`
+                        }],
+                    };
+                }
+            } catch {
+                // Fall through to the generic wrong-type message
+            }
             return {
                 isError: true,
                 content: [{

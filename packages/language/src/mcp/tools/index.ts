@@ -7,9 +7,6 @@ import { ruleTools } from './rules/index.js';
 import { validateOmlHandler, validateOmlTool, validateOmlMetadata } from './validate-tool.js';
 import { pendingTools } from './stubs/pending-tools.js';
 import { ensureImportsHandler, ensureImportsTool } from './methodology/ensure-imports.js';
-import { addToBundleHandler, addToBundleTool } from './methodology/add-to-bundle.js';
-import { smartCreateVocabularyHandler, smartCreateVocabularyTool } from './methodology/smart-create-vocabulary.js';
-import { generateVocabularyBundleHandler, generateVocabularyBundleTool } from './methodology/generate-vocabulary-bundle.js';
 import { clarifyMethodologyPreferencesHandler, clarifyMethodologyPreferencesTool } from './methodology/clarify-methodology-preferences.js';
 import { extractMethodologyRulesHandler, extractMethodologyRulesTool } from './methodology/extract-methodology-rules.js';
 import { enforceMethodologyRulesHandler, enforceMethodologyRulesTool, enforceMethodologyRulesMetadata } from './methodology/enforce-methodology-rules.js';
@@ -33,9 +30,6 @@ const coreTools: ToolRegistration[] = [
     ...ontologyTools,
     ...ruleTools,
     { tool: ensureImportsTool, handler: ensureImportsHandler },
-    { tool: addToBundleTool, handler: addToBundleHandler },
-    { tool: smartCreateVocabularyTool, handler: smartCreateVocabularyHandler },
-    { tool: generateVocabularyBundleTool, handler: generateVocabularyBundleHandler },
     { tool: clarifyMethodologyPreferencesTool, handler: clarifyMethodologyPreferencesHandler },
     { tool: extractMethodologyRulesTool, handler: extractMethodologyRulesHandler },
     { tool: enforceMethodologyRulesTool, handler: enforceMethodologyRulesHandler, metadata: enforceMethodologyRulesMetadata },
@@ -104,9 +98,6 @@ export const phase3Tools: ToolRegistration[] = pickTools([
     'update_equivalence',
     'update_restriction',
     'ensure_imports',
-    'add_to_bundle',
-    'smart_create_vocabulary',
-    'generate_vocabulary_bundle',
     'clarify_methodology_preferences',
     'extract_methodology_rules',
     'enforce_methodology_rules',

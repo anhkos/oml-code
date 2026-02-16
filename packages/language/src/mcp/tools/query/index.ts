@@ -24,3 +24,10 @@ export {
     analyzeImpactMetadata,
     analyzeImpactHandler,
 } from './analyze-impact.js';
+
+export {
+    parseVocabularyForProperties,
+    type ExtractedRelation,
+    type ExtractedScalarProperty,
+    type VocabularyProperties,
+} from './parse-vocabulary.js';

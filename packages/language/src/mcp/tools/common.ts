@@ -5,6 +5,7 @@ import { createMessageConnection, StreamMessageReader, StreamMessageWriter } fro
 import {
     getOmlServices,
     getFreshDocument as getFreshDocumentFromStore,
+    invalidateDocument,
     getWorkspaceRoot as getWorkspaceRootFromResolver,
     resolveWorkspacePath as resolveWorkspacePathFromResolver,
     pathToFileUri as pathToFileUriFromResolver,
@@ -185,8 +186,18 @@ export async function loadVocabularyDocument(ontology: string) {
     // Use getFreshDocument to ensure we always read from disk
     const document = await getFreshDocument(services, fileUri);
 
-    const root = document.parseResult.value;
-    if (!isVocabulary(root)) {
+    const root = document.parseResult?.value;
+    
+    // Debug: log parse errors if any
+    if (document.parseResult?.lexerErrors && document.parseResult.lexerErrors.length > 0) {
+        console.error(`[DEBUG] Vocabulary Lexer errors: ${document.parseResult.lexerErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    if (document.parseResult?.parserErrors && document.parseResult.parserErrors.length > 0) {
+        console.error(`[DEBUG] Vocabulary Parser errors: ${document.parseResult.parserErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    
+    if (!root || !isVocabulary(root)) {
+        console.error(`[DEBUG] Vocabulary load failed: root=$type=${root?.$type}, isVocab=${root ? isVocabulary(root) : false}`);
         throw new Error(`The target ontology "${filePath}" is not a vocabulary. Use loadAnyOntologyDocument() for descriptions or bundles.`);
     }
 
@@ -214,12 +225,26 @@ export async function loadAnyOntologyDocument(ontology: string) {
     // Use getFreshDocument to ensure we always read from disk
     const document = await getFreshDocument(services, fileUri);
 
-    const root = document.parseResult.value;
+    console.error(`[DEBUG] AnyOntology parseResult exists: ${!!document.parseResult}, parseResult.value exists: ${!!document.parseResult?.value}`);
     
-    const isVocab = isVocabulary(root);
-    const isDesc = isDescription(root);
+    const root = document.parseResult?.value;
     
-    if (!isVocab && !isDesc) {
+    // Debug: log parse errors if any
+    if (!document.parseResult) {
+        console.error(`[DEBUG] AnyOntology: document.parseResult is null/undefined!`);
+    }
+    if (document.parseResult?.lexerErrors && document.parseResult.lexerErrors.length > 0) {
+        console.error(`[DEBUG] AnyOntology Lexer errors: ${document.parseResult.lexerErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    if (document.parseResult?.parserErrors && document.parseResult.parserErrors.length > 0) {
+        console.error(`[DEBUG] AnyOntology Parser errors: ${document.parseResult.parserErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    
+    const isVocab = root ? isVocabulary(root) : false;
+    const isDesc = root ? isDescription(root) : false;
+    
+    if (!root || (!isVocab && !isDesc)) {
+        console.error(`[DEBUG] AnyOntology load failed: root=$type=${root?.$type}, isVocab=${isVocab}, isDesc=${isDesc}`);
         throw new Error('The target file is not a vocabulary or description.');
     }
 
@@ -395,6 +420,9 @@ export async function writeFileAndNotify(filePath: string, fileUri: string, newC
     fs.writeSync(fd, newContent, 0, 'utf-8');
     fs.fsyncSync(fd);
     fs.closeSync(fd);
+
+    // Invalidate cached document immediately to avoid stale reads (especially on Windows mtime resolution)
+    invalidateDocument(filePath);
 
     let socket: net.Socket | undefined;
     let connection: ReturnType<typeof createMessageConnection> | undefined;

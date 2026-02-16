@@ -16,10 +16,14 @@ export const analyzeMethodologyRequestTool = {
     name: 'analyze_methodology_request' as const,
     description: `Analyze a user request against Sierra methodology rules BEFORE executing it.
 
-USE THIS TOOL FIRST when the user asks to:
+USE THIS TOOL ONLY when the user request is ambiguous or incomplete, for example:
 - Create instances (requirements, stakeholders, components, etc.)
 - Add relations between instances
 - Modify existing instances
+
+DO NOT CALL THIS TOOL when the user has already provided a complete OML description snippet
+(i.e., explicit description block, instances, and required relations/properties). In that case,
+proceed directly with create_ontology and create_concept_instance calls.
 
 This tool acts as a "methodology advisor" that:
 1. Validates the request against playbook rules
@@ -422,6 +426,28 @@ export const analyzeMethodologyRequestHandler = async (params: {
     freeformRequest?: string;
 }): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> => {
     try {
+        // Fast path: if the user already provided a complete OML description snippet,
+        // skip methodology analysis and proceed directly with instance creation tools.
+        if (params.freeformRequest) {
+            const req = params.freeformRequest;
+            const hasDescriptionBlock = /\bdescription\s*<[^>]+>\s+as\s+\w+/i.test(req);
+            const hasInstance = /\binstance\s+\w+\s*:/i.test(req);
+            const hasUses = /\buses\s*<[^>]+>\s+as\s+\w+/i.test(req);
+            if (hasDescriptionBlock && hasInstance && hasUses) {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: `# Methodology Analysis Skipped\n\n` +
+                            `A complete OML description snippet was provided. Methodology analysis is not needed.\n\n` +
+                            `✅ Proceed directly with:\n` +
+                            `- create_ontology (if the description file does not exist)\n` +
+                            `- create_concept_instance for each stakeholder and requirement\n\n` +
+                            `This avoids unnecessary analysis and questions when the request is already fully specified.`
+                    }],
+                };
+            }
+        }
+
         const workspacePath = params.workspacePath || process.cwd();
         
         // Load playbook

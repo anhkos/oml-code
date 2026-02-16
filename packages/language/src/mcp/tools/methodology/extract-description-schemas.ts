@@ -20,7 +20,8 @@ import {
     ConceptInstance,
     RelationInstance,
 } from '../../../generated/ast.js';
-import type { DescriptionSchema, DescriptionConstraint, MethodologyPlaybook } from './playbook-types.js';
+import type { DescriptionSchema, DescriptionConstraint} from './playbook-types.js';
+import { loadPlaybook, savePlaybook } from './core/index.js';
 
 export const extractDescriptionSchemasTool = {
     name: 'extract_description_schemas' as const,
@@ -451,8 +452,7 @@ async function findDescriptionDirectories(dirPath: string, maxDepth: number = 5,
  * Merge new schemas into an existing playbook file.
  */
 function mergeIntoPlaybook(playbookPath: string, newSchemas: Record<string, DescriptionSchema>): string {
-    const content = fs.readFileSync(playbookPath, 'utf-8');
-    const playbook = yaml.load(content) as MethodologyPlaybook;
+    const playbook = loadPlaybook(playbookPath);
     
     // Initialize descriptions if not present
     if (!playbook.descriptions) {
@@ -465,16 +465,14 @@ function mergeIntoPlaybook(playbookPath: string, newSchemas: Record<string, Desc
     }
     
     // Write back
-    const updatedContent = yaml.dump(playbook, {
+    savePlaybook(playbookPath, playbook);
+
+    return yaml.dump(playbook, {
         indent: 2,
         lineWidth: 120,
         noRefs: true,
         sortKeys: false,
     });
-    
-    fs.writeFileSync(playbookPath, updatedContent, 'utf-8');
-    
-    return updatedContent;
 }
 
 export const extractDescriptionSchemasHandler = async (params: {

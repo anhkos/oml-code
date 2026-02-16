@@ -244,93 +244,6 @@ function mapFieldsToProperties(
     return propertyValues;
 }
 
-/**
- * Get default templates for common types.
- */
-function getDefaultTemplates(): InstanceTemplate[] {
-    return [
-        {
-            id: 'requirement-template',
-            appliesTo: { conceptPattern: '*Requirement' },
-            description: 'Template for requirement instances',
-            naming: {
-                prefix: 'R',
-                counterStyle: 'number',
-            },
-            propertyMappings: [
-                {
-                    property: 'base:description',
-                    mapsFrom: 'name',
-                    valueType: 'literal',
-                    literalType: 'quoted',
-                    required: true,
-                    description: 'Short name/title of the requirement',
-                },
-                {
-                    property: 'base:expression',
-                    mapsFrom: 'text',
-                    valueType: 'literal',
-                    literalType: 'quoted',
-                    required: true,
-                    description: 'The full requirement statement (shall statement)',
-                },
-                {
-                    property: 'requirement:isExpressedBy',
-                    mapsFrom: 'expressedBy',
-                    valueType: 'reference',
-                    required: true,
-                    description: 'The stakeholder who expresses this requirement',
-                },
-            ],
-            example: {
-                input: {
-                    name: 'Real-Time Map',
-                    text: 'The system shall display real-time fire locations.',
-                    expressedBy: 'Operator',
-                },
-                output: 'instance R1 : requirement:Requirement [\n  base:description "Real-Time Map"\n  base:expression "The system shall display real-time fire locations."\n  requirement:isExpressedBy Operator\n]',
-            },
-        },
-        {
-            id: 'stakeholder-template',
-            appliesTo: { conceptPattern: '*Stakeholder' },
-            description: 'Template for stakeholder instances',
-            naming: {
-                prefix: 'SH',
-                counterStyle: 'number',
-            },
-            propertyMappings: [
-                {
-                    property: 'base:description',
-                    mapsFrom: 'description',
-                    valueType: 'literal',
-                    literalType: 'quoted',
-                    required: false,
-                    description: 'Description of the stakeholder role',
-                },
-            ],
-        },
-        {
-            id: 'component-template',
-            appliesTo: { conceptPattern: '*Component' },
-            description: 'Template for component instances',
-            naming: {
-                prefix: 'C',
-                counterStyle: 'number',
-            },
-            propertyMappings: [
-                {
-                    property: 'base:description',
-                    mapsFrom: 'description',
-                    valueType: 'literal',
-                    literalType: 'quoted',
-                    required: false,
-                },
-            ],
-        },
-    ];
-}
-
 export const prepareInstanceHandler = async (params: {
     instanceType: string;
     fields: Record<string, string>;
@@ -352,8 +265,8 @@ export const prepareInstanceHandler = async (params: {
             // No playbook - use defaults
         }
         
-        // Get templates (from playbook or defaults)
-        const templates = playbook?.instanceTemplates ?? getDefaultTemplates();
+        // Get templates (from playbook only)
+        const templates = playbook?.instanceTemplates ?? [];
         
         // Find matching template
         const template = findTemplate(instanceType, templates);

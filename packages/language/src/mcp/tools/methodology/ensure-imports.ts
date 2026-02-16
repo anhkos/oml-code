@@ -208,7 +208,6 @@ async function buildSymbolToNamespaceMap(): Promise<Map<string, string>> {
                     if (stmt && stmt.name) {
                         // Map symbol name to its vocabulary's namespace
                         // Note: if same symbol exists in multiple vocabs, last one wins
-                        // This is acceptable since we use this as a fallback
                         symbolMap.set(stmt.name, namespace);
                         
                         // Also index forward/reverse relations from RelationEntity

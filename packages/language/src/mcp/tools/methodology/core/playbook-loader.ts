@@ -17,6 +17,80 @@ import yaml from 'js-yaml';
 import { MethodologyPlaybook } from '../playbook-types.js';
 import { Logger, getLogger } from '../../common/logger.js';
 
+interface CachedPlaybook {
+    playbook: MethodologyPlaybook;
+    modifiedTime: number;
+}
+
+const playbookCache = new Map<string, CachedPlaybook>();
+const MAX_PLAYBOOK_CACHE_SIZE = 10;
+
+function getCachedPlaybook(resolvedPath: string): MethodologyPlaybook | null {
+    const cached = playbookCache.get(resolvedPath);
+    if (!cached) return null;
+
+    try {
+        const stats = fs.statSync(resolvedPath);
+        if (stats.mtimeMs === cached.modifiedTime) {
+            return cached.playbook;
+        }
+        playbookCache.delete(resolvedPath);
+        return null;
+    } catch {
+        playbookCache.delete(resolvedPath);
+        return null;
+    }
+}
+
+async function getCachedPlaybookAsync(resolvedPath: string): Promise<{ cachedPlaybook?: MethodologyPlaybook; stats: fs.Stats } | null> {
+    const cached = playbookCache.get(resolvedPath);
+    try {
+        const stats = await fsPromises.stat(resolvedPath);
+        if (cached && stats.mtimeMs === cached.modifiedTime) {
+            return { cachedPlaybook: cached.playbook, stats };
+        }
+        if (cached) playbookCache.delete(resolvedPath);
+        return { stats };
+    } catch {
+        playbookCache.delete(resolvedPath);
+        return null;
+    }
+}
+
+function setPlaybookCache(resolvedPath: string, playbook: MethodologyPlaybook, stats?: fs.Stats): void {
+    try {
+        const fileStats = stats ?? fs.statSync(resolvedPath);
+        if (playbookCache.size >= MAX_PLAYBOOK_CACHE_SIZE) {
+            const firstKey = playbookCache.keys().next().value;
+            if (firstKey) playbookCache.delete(firstKey);
+        }
+        playbookCache.set(resolvedPath, {
+            playbook,
+            modifiedTime: fileStats.mtimeMs,
+        });
+    } catch {
+        // Ignore cache update if file is not readable
+    }
+}
+
+export function invalidatePlaybookCache(playbookPath?: string): void {
+    if (!playbookPath) {
+        playbookCache.clear();
+        return;
+    }
+
+    const resolvedPath = path.resolve(playbookPath);
+    playbookCache.delete(resolvedPath);
+}
+
+export function getPlaybookCacheInfo(): { size: number; maxSize: number; entries: string[] } {
+    return {
+        size: playbookCache.size,
+        maxSize: MAX_PLAYBOOK_CACHE_SIZE,
+        entries: [...playbookCache.keys()],
+    };
+}
+
 /**
  * Async: Find playbook file by searching up directory tree
  * Returns path to first playbook found (nearest/most specific)
@@ -232,24 +306,36 @@ export async function loadPlaybookAsync(
     playbookPath: string,
     logger: Logger = getLogger('playbook-loader'),
 ): Promise<MethodologyPlaybook> {
+    const resolvedPath = path.resolve(playbookPath);
     try {
-        logger.debug(`Loading playbook`, { path: playbookPath });
-        const content = await fsPromises.readFile(playbookPath, 'utf-8');
+        const cached = await getCachedPlaybookAsync(resolvedPath);
+        if (cached?.cachedPlaybook) {
+            logger.debug(`Playbook cache hit`, { path: resolvedPath });
+            return cached.cachedPlaybook;
+        }
 
-        const ext = path.extname(playbookPath).toLowerCase();
+        logger.debug(`Loading playbook`, { path: resolvedPath });
+        const content = await fsPromises.readFile(resolvedPath, 'utf-8');
+
+        const ext = path.extname(resolvedPath).toLowerCase();
         try {
             const playbook = ext === '.json'
                 ? (JSON.parse(content) as MethodologyPlaybook)
                 : (yaml.load(content) as MethodologyPlaybook);
-            logger.info(`Playbook loaded successfully`, { path: playbookPath, format: ext || 'yaml' });
+            logger.info(`Playbook loaded successfully`, { path: resolvedPath, format: ext || 'yaml' });
+            if (cached?.stats) {
+                setPlaybookCache(resolvedPath, playbook, cached.stats);
+            } else {
+                setPlaybookCache(resolvedPath, playbook);
+            }
             return playbook;
         } catch (parseError) {
-            logger.error(`Failed to parse playbook`, parseError as Error, { path: playbookPath, format: ext || 'yaml' });
-            throw new Error(`Could not parse playbook as ${ext === '.json' ? 'JSON' : 'YAML'}: ${playbookPath}`);
+            logger.error(`Failed to parse playbook`, parseError as Error, { path: resolvedPath, format: ext || 'yaml' });
+            throw new Error(`Could not parse playbook as ${ext === '.json' ? 'JSON' : 'YAML'}: ${resolvedPath}`);
         }
     } catch (error) {
-        logger.error(`Failed to load playbook`, error as Error, { path: playbookPath });
-        throw new Error(`Failed to load playbook from ${playbookPath}: ${error}`);
+        logger.error(`Failed to load playbook`, error as Error, { path: resolvedPath });
+        throw new Error(`Failed to load playbook from ${resolvedPath}: ${error}`);
     }
 }
 
@@ -266,13 +352,16 @@ export async function savePlaybookAsync(
     logger: Logger = getLogger('playbook-loader'),
 ): Promise<void> {
     try {
-        logger.debug(`Saving playbook`, { path: playbookPath });
-        const ext = path.extname(playbookPath).toLowerCase();
+        const resolvedPath = path.resolve(playbookPath);
+        logger.debug(`Saving playbook`, { path: resolvedPath });
+        const ext = path.extname(resolvedPath).toLowerCase();
         const output = ext === '.json'
             ? JSON.stringify(playbook, null, 2)
             : yaml.dump(playbook, { noRefs: true, lineWidth: 120 });
-        await fsPromises.writeFile(playbookPath, output, 'utf-8');
-        logger.info(`Playbook saved successfully`, { path: playbookPath, format: ext || 'yaml' });
+        await fsPromises.writeFile(resolvedPath, output, 'utf-8');
+        const stats = await fsPromises.stat(resolvedPath);
+        setPlaybookCache(resolvedPath, playbook, stats);
+        logger.info(`Playbook saved successfully`, { path: resolvedPath, format: ext || 'yaml' });
     } catch (error) {
         logger.error(`Failed to save playbook`, error as Error, { path: playbookPath });
         throw new Error(`Failed to save playbook to ${playbookPath}: ${error}`);
@@ -289,15 +378,23 @@ export async function savePlaybookAsync(
  */
 export function loadPlaybook(playbookPath: string): MethodologyPlaybook {
     try {
-        const content = fs.readFileSync(playbookPath, 'utf-8');
+        const resolvedPath = path.resolve(playbookPath);
+        const cached = getCachedPlaybook(resolvedPath);
+        if (cached) {
+            return cached;
+        }
 
-        const ext = path.extname(playbookPath).toLowerCase();
+        const content = fs.readFileSync(resolvedPath, 'utf-8');
+
+        const ext = path.extname(resolvedPath).toLowerCase();
         try {
-            return ext === '.json'
+            const playbook = ext === '.json'
                 ? (JSON.parse(content) as MethodologyPlaybook)
                 : (yaml.load(content) as MethodologyPlaybook);
+            setPlaybookCache(resolvedPath, playbook);
+            return playbook;
         } catch {
-            throw new Error(`Could not parse playbook as ${ext === '.json' ? 'JSON' : 'YAML'}: ${playbookPath}`);
+            throw new Error(`Could not parse playbook as ${ext === '.json' ? 'JSON' : 'YAML'}: ${resolvedPath}`);
         }
     } catch (error) {
         throw new Error(`Failed to load playbook from ${playbookPath}: ${error}`);
@@ -313,11 +410,13 @@ export function loadPlaybook(playbookPath: string): MethodologyPlaybook {
  */
 export function savePlaybook(playbookPath: string, playbook: MethodologyPlaybook): void {
     try {
-        const ext = path.extname(playbookPath).toLowerCase();
+        const resolvedPath = path.resolve(playbookPath);
+        const ext = path.extname(resolvedPath).toLowerCase();
         const output = ext === '.json'
             ? JSON.stringify(playbook, null, 2)
             : yaml.dump(playbook, { noRefs: true, lineWidth: 120 });
-        fs.writeFileSync(playbookPath, output, 'utf-8');
+        fs.writeFileSync(resolvedPath, output, 'utf-8');
+        setPlaybookCache(resolvedPath, playbook);
     } catch (error) {
         throw new Error(`Failed to save playbook to ${playbookPath}: ${error}`);
     }

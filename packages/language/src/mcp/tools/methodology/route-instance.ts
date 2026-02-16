@@ -11,7 +11,6 @@
 import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
-import yaml from 'js-yaml';
 import type { MethodologyPlaybook, DescriptionSchema } from './playbook-types.js';
 import { resolvePlaybookPath, loadPlaybook as loadPlaybookFromCore } from './core/index.js';
 
@@ -26,6 +25,10 @@ USE THIS TOOL when the user asks:
 - "Where should I put this Requirement instance?"
 - "Which file should contain my Stakeholder?"
 - "Create a new Component - but where?"
+
+DO NOT USE this tool when:
+- The user already provided the target description file path
+- The user provided a complete OML description snippet and expects direct creation
 
 RETURNS: The ABSOLUTE PATH to an existing description file.
 Searches the workspace, reads file headers to verify they are descriptions (not vocabularies).
@@ -206,61 +209,6 @@ function resolveDescriptionPath(
     for (const [foundName, foundPath] of descriptionFiles) {
         if (foundName.includes(nameWithoutExt) || nameWithoutExt.includes(foundName.replace('.oml', ''))) {
             return foundPath;
-        }
-    }
-    
-    return null;
-}
-
-/**
- * Load playbook from path or auto-detect.
- */
-function loadPlaybook(
-    playbookPath?: string, 
-    methodologyName?: string, 
-    workspacePath?: string
-): MethodologyPlaybook | null {
-    if (playbookPath && fs.existsSync(playbookPath)) {
-        const content = fs.readFileSync(playbookPath, 'utf-8');
-        return yaml.load(content) as MethodologyPlaybook;
-    }
-    
-    // Auto-detect playbook
-    const searchPaths: string[] = [];
-    
-    if (workspacePath) {
-        searchPaths.push(workspacePath);
-        searchPaths.push(path.join(workspacePath, 'src'));
-        searchPaths.push(path.join(workspacePath, 'build'));
-    }
-    
-    const patterns = methodologyName 
-        ? [`${methodologyName.toLowerCase()}_playbook.yaml`, 'methodology_playbook.yaml', 'playbook.yaml']
-        : ['methodology_playbook.yaml', 'playbook.yaml', '*_playbook.yaml'];
-    
-    for (const searchPath of searchPaths) {
-        if (!fs.existsSync(searchPath)) continue;
-        
-        for (const pattern of patterns) {
-            if (pattern.includes('*')) {
-                // Glob pattern - search directory
-                try {
-                    const files = fs.readdirSync(searchPath);
-                    for (const file of files) {
-                        if (file.endsWith('_playbook.yaml')) {
-                            const fullPath = path.join(searchPath, file);
-                            const content = fs.readFileSync(fullPath, 'utf-8');
-                            return yaml.load(content) as MethodologyPlaybook;
-                        }
-                    }
-                } catch { /* ignore */ }
-            } else {
-                const fullPath = path.join(searchPath, pattern);
-                if (fs.existsSync(fullPath)) {
-                    const content = fs.readFileSync(fullPath, 'utf-8');
-                    return yaml.load(content) as MethodologyPlaybook;
-                }
-            }
         }
     }
     
@@ -500,20 +448,13 @@ export const routeInstanceHandler = async (params: {
         let playbookDir: string | undefined;
         
         if (playbookPath && fs.existsSync(playbookPath)) {
-            const content = fs.readFileSync(playbookPath, 'utf-8');
-            playbook = yaml.load(content) as MethodologyPlaybook;
+            playbook = loadPlaybookFromCore(playbookPath);
             playbookDir = path.dirname(playbookPath);
         } else {
-            // Try shared helper for auto-detection
-            try {
-                const resolvedPath = resolvePlaybookPath({ workspacePath });
-                if (resolvedPath) {
-                    playbook = loadPlaybookFromCore(resolvedPath);
-                    playbookDir = path.dirname(resolvedPath);
-                }
-            } catch {
-                // Fall back to local auto-detection
-                playbook = loadPlaybook(undefined, undefined, workspacePath);
+            const resolvedPath = resolvePlaybookPath({ workspacePath });
+            if (resolvedPath) {
+                playbook = loadPlaybookFromCore(resolvedPath);
+                playbookDir = path.dirname(resolvedPath);
             }
         }
         

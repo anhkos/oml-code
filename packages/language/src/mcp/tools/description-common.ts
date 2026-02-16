@@ -1,10 +1,8 @@
 import * as fs from 'fs';
-import * as net from 'net';
-import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node.js';
 import { NodeFileSystem } from 'langium/node';
 import { createOmlServices } from '../../oml-module.js';
 import { Description, isDescription } from '../../generated/ast.js';
-import { LSP_BRIDGE_PORT, pathToFileUri, fileUriToPath, detectIndentation, getFreshDocument } from './common.js';
+import { pathToFileUri, fileUriToPath, detectIndentation, getFreshDocument, writeFileAndNotify } from './common.js';
 
 /**
  * Custom error class for when an ontology file doesn't exist.
@@ -43,9 +41,28 @@ export async function loadDescriptionDocument(ontology: string) {
     // Use getFreshDocument to ensure we always read fresh content from disk
     const document = await getFreshDocument(services, fileUri);
 
-    const root = document.parseResult.value;
-    if (!isDescription(root)) {
-        throw new WrongOntologyTypeError(filePath, 'description', root.$type || 'unknown');
+    console.error(`[DEBUG] Description parseResult exists: ${!!document.parseResult}, parseResult.value exists: ${!!document.parseResult?.value}`);
+    
+    const root = document.parseResult?.value;
+    
+    // Debug: log what we actually got
+    if (!document.parseResult) {
+        console.error(`[DEBUG] Description: document.parseResult is null/undefined!`);
+    }
+    if (document.parseResult?.lexerErrors && document.parseResult.lexerErrors.length > 0) {
+        console.error(`[DEBUG] Lexer errors: ${document.parseResult.lexerErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    if (document.parseResult?.parserErrors && document.parseResult.parserErrors.length > 0) {
+        console.error(`[DEBUG] Parser errors: ${document.parseResult.parserErrors.map((e: any) => e.message).join(', ')}`);
+    }
+    if (root) {
+        console.error(`[DEBUG] Parsed root $type: ${root.$type}`);
+        console.error(`[DEBUG] isDescription check: ${isDescription(root)}`);
+    }
+    
+    if (!root || !isDescription(root)) {
+        const actualType = root?.$type || 'unknown (parse failed)';
+        throw new WrongOntologyTypeError(filePath, 'description', actualType);
     }
 
     const text = fs.readFileSync(filePath, 'utf-8');
@@ -62,42 +79,5 @@ export function findInstance(description: Description, name: string) {
 }
 
 export async function writeDescriptionAndNotify(filePath: string, fileUri: string, newContent: string) {
-    fs.writeFileSync(filePath, newContent, 'utf-8');
-
-    let socket: net.Socket | undefined;
-    let connection: ReturnType<typeof createMessageConnection> | undefined;
-
-    try {
-        socket = net.connect({ port: LSP_BRIDGE_PORT });
-        await new Promise<void>((resolve, reject) => {
-            socket!.once('connect', () => resolve());
-            socket!.once('error', (err) => reject(err));
-            setTimeout(() => reject(new Error('Connection timeout')), 5000);
-        });
-
-        const reader = new StreamMessageReader(socket);
-        const writer = new StreamMessageWriter(socket);
-        connection = createMessageConnection(reader, writer);
-        connection.listen();
-
-        // Use didClose/didOpen to force a complete re-read, consistent with vocab tools
-        // This prevents stale views in the language server
-        await connection.sendNotification('textDocument/didClose', {
-            textDocument: { uri: fileUri },
-        });
-
-        await connection.sendNotification('textDocument/didOpen', {
-            textDocument: {
-                uri: fileUri,
-                languageId: 'oml',
-                version: Date.now(),
-                text: newContent,
-            },
-        });
-    } catch (error) {
-        console.error('[mcp] Failed to notify LSP bridge:', error);
-    } finally {
-        if (connection) connection.dispose();
-        if (socket) socket.end();
-    }
+    await writeFileAndNotify(filePath, fileUri, newContent);
 }
