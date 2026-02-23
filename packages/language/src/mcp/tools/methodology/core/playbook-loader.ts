@@ -114,10 +114,8 @@ export async function findPlaybookAsync(
             // Look for any playbook files
             const playbookFile = files.find(
                 (f) =>
-                    f.endsWith('_playbook.yaml') ||
-                    f.endsWith('_playbook.yml') ||
-                    f === 'playbook.yaml' ||
-                    f === 'playbook.yml',
+                    f.endsWith('.yaml') ||
+                    f.endsWith('.yml')
             );
 
             if (playbookFile) {
