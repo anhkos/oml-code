@@ -2,9 +2,10 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { allTools } from './tools/index.js';
+import { allTools, methodologyModeToolNames } from './tools/index.js';
 import { getWorkspaceRoot } from './tools/common.js';
 import { createToolRegistry, createPluginLifecycleManager, type Tool } from './tools/registry/index.js';
+import { preferencesState } from './tools/preferences/preferences-state.js';
 
 /**
  * Initialize and register all tools with the registry
@@ -72,6 +73,21 @@ async function main() {
             tool.paramsSchema as any,
             async (...args: any[]) => {
                 try {
+                    const workflowMode = preferencesState.getPreferences().workflowMode ?? 'basic';
+                    if (methodologyModeToolNames.has(tool.name) && workflowMode !== 'methodology') {
+                        return {
+                            content: [
+                                {
+                                    type: 'text' as const,
+                                    text:
+                                        `Tool '${tool.name}' is unavailable in workflow mode '${workflowMode}'.\n` +
+                                        `Switch modes first:\n` +
+                                        `set_preferences({ workflowMode: "methodology" })`,
+                                },
+                            ],
+                        };
+                    }
+
                     // Increment usage tracking
                     registry.recordUsage(tool.name);
                     

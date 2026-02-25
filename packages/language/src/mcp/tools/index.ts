@@ -94,6 +94,14 @@ export const phase3Tools: ToolRegistration[] = pickTools([
     'extract_description_schemas',
 ]);
 
+export const methodologyModeToolNames = new Set<string>([
+    'ensure_imports',
+    'clarify_methodology_preferences',
+    'extract_methodology_rules',
+    'enforce_methodology_rules',
+    'extract_description_schemas',
+]);
+
 export const allTools: ToolRegistration[] = [
     ...coreTools,
     ...pendingTools.map((p) => ({ tool: p.tool, handler: p.handler }))

@@ -4,9 +4,11 @@
  */
 
 export type AutonomyMode = 'confirm' | 'batch' | 'auto';
+export type WorkflowMode = 'basic' | 'methodology';
 
 export interface UserPreferences {
     autonomy: AutonomyMode;
+    workflowMode?: WorkflowMode;
     policies?: string[];
     metadata?: Record<string, unknown>;
     /** 
@@ -30,6 +32,7 @@ export interface FeedbackEntry {
 class PreferencesState {
     private preferences: UserPreferences = {
         autonomy: 'confirm',
+        workflowMode: 'basic',
         policies: [],
         safeMode: false,
     };
@@ -65,10 +68,16 @@ class PreferencesState {
     }
 
     getContextPrompt(): string {
-        const { autonomy, policies, safeMode } = this.preferences;
+        const { autonomy, workflowMode, policies, safeMode } = this.preferences;
         
         let prompt = `Current user preferences:\n`;
         prompt += `- Autonomy mode: ${autonomy}\n`;
+        prompt += `- Workflow mode: ${workflowMode ?? 'basic'}\n`;
+        if ((workflowMode ?? 'basic') === 'basic') {
+            prompt += `  → Methodology-editing tools are hidden/blocked unless you switch to methodology mode.\n`;
+        } else {
+            prompt += `  → Methodology-editing tools are enabled for this session.\n`;
+        }
         
         if (autonomy === 'confirm') {
             prompt += `  → Ask for confirmation before executing each tool call.\n`;

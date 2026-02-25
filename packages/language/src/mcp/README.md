@@ -108,6 +108,37 @@ I will write a comprehensive guide on prompting strategies and Copilot instructi
 
 ## Configuration
 
+### Workflow Modes (Dynamic Tool Exposure)
+
+The server supports two workflow modes to reduce tool overload and keep prompts focused:
+
+- **`basic` (default):** core OML modeling tools (terms, axioms, instances, ontology, rules, validation/query)
+- **`methodology`:** enables methodology-editing tools for playbook creation/enforcement workflows
+
+Set mode with `set_preferences`:
+
+```json
+{
+  "tool": "set_preferences",
+  "params": {
+    "workflowMode": "basic"
+  }
+}
+```
+
+Enable methodology mode when you are explicitly editing methodology/playbook assets:
+
+```json
+{
+  "tool": "set_preferences",
+  "params": {
+    "workflowMode": "methodology"
+  }
+}
+```
+
+If a methodology tool is called while in `basic` mode, the server returns a clear message asking you to switch modes first.
+
 ## Tool Categories
 
 ### Validation and Query Tools
@@ -192,6 +223,8 @@ Tools for managing SWRL-style rules.
 
 Higher-level tools for common workflows.
 
+> These are gated by workflow mode and require `workflowMode: "methodology"`.
+
 **Hybrid recommendation:** keep parser/deterministic tools in MCP, and prefer agent skill orchestration for playbook-driven routing/preparation/preflight logic.
 
 | Tool | Description |
@@ -204,12 +237,6 @@ Higher-level tools for common workflows.
 | `extract_methodology_rules` | Generates a "Playbook" from vocabulary files for consistent modeling |
 | `enforce_methodology_rules` | Validates descriptions against a methodology playbook |
 
-**Moved to skill orchestration (no longer exposed as MCP tools):**
-- `analyze_methodology_request`
-- `route_instance`
-- `prepare_instance`
-- `list_playbook_constraints`
-- `update_playbook`
 
 #### Understanding the Methodology Playbook System
 

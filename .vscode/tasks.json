@@ -6,6 +6,15 @@
         {
             "label": "Build oml",
             "command": "npm run langium:generate && npm run build",
+            "windows": {
+                "command": "npm run langium:generate; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run build"
+            },
+            "linux": {
+                "command": "npm run langium:generate && npm run build"
+            },
+            "osx": {
+                "command": "npm run langium:generate && npm run build"
+            },
             "type": "shell",
             "group": {
                 "kind": "build",

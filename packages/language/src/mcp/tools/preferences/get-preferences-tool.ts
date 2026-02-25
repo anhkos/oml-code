@@ -4,7 +4,7 @@ const getPreferencesSchema = {};
 
 export const getPreferencesTool = {
     name: 'get_preferences' as const,
-    description: 'Retrieve current user preferences and planning context. Returns the active autonomy mode, policies, and a formatted prompt snippet you can use to condition your planning.',
+    description: 'Retrieve current user preferences and planning context. Returns the active autonomy mode, workflow mode, policies, and a formatted prompt snippet you can use to condition your planning.',
     paramsSchema: getPreferencesSchema,
 };
 
