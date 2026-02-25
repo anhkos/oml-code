@@ -15,6 +15,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import { resolvePlaybookPath, loadPlaybook } from './core/index.js';
 import type { MethodologyPlaybook, InstanceTemplate, NamingPattern, PropertyMapping, AppliesTo } from './playbook-types.js';
+import type { ToolMetadata } from '../types.js';
 
 export const prepareInstanceTool = {
     name: 'prepare_instance' as const,
@@ -55,6 +56,19 @@ and have the tool figure out the proper OML structure.`,
         descriptionPath: z.string().optional().describe('Path to the description file (for counting existing instances)'),
         workspacePath: z.string().optional().describe('Workspace path for auto-detection'),
     },
+};
+
+export const prepareInstanceMetadata: ToolMetadata = {
+    id: 'prepare_instance',
+    displayName: 'Prepare Instance',
+    layer: 'methodology',
+    severity: 'medium',
+    version: '1.0.0',
+    shortDescription: 'Prepare names and properties from playbook templates',
+    description: 'Playbook template helper for naming and property mappings before instance creation. Preferred to run through skill orchestration in hybrid mode.',
+    tags: ['methodology', 'templating', 'skill-preferred', 'phase-2-candidate'],
+    dependencies: ['create_concept_instance'],
+    addedDate: '2024-01-01',
 };
 
 /**

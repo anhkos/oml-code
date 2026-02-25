@@ -17,43 +17,19 @@ const paramsSchema = {
 
 export const createConceptInstanceTool = {
     name: 'create_concept_instance' as const,
-    description: `Creates a concept instance in a DESCRIPTION ontology. Use this for description modeling - creating specific individuals that are instances of concepts defined in vocabularies.
+    description: `Create a concept instance in a DESCRIPTION ontology.
 
-⚠️ CRITICAL: DO NOT CALL THIS TOOL IN PARALLEL WITH OTHER TOOLS.
-Call this tool SEQUENTIALLY, one instance at a time, waiting for each to complete.
+Use this tool only for deterministic file mutation.
 
-⚠️ PREREQUISITE: The target file MUST already be a valid description ontology.
-If the file is EMPTY or does NOT EXIST, you MUST call create_ontology FIRST.
-NEVER manually create the file using file creation tools.
+Hard constraints:
+- Call this tool sequentially (no parallel mutation calls)
+- Target must be an existing DESCRIPTION ontology
+- If target file does not exist, call create_ontology first
 
-⚠️ REQUIRED WORKFLOW - FOLLOW THESE STEPS:
-
-1. **CHECK DESCRIPTION SCHEMAS FIRST** using route_instance tool:
-   - Determines which file should contain this type
-   - Shows what properties are typically required
-   - Validates the instance will conform to methodology rules
-
-    ✅ SKIP THIS STEP if the user has already provided a complete OML description snippet
-    (explicit description block + instances + required properties/relations) and the target
-    description file path is known.
-
-2. **VALIDATE REFERENCED INSTANCES**:
-   - If adding relations (e.g., requirement:isExpressedBy), ensure target instances exist
-   - Verify target instances are of the correct type (e.g., stakeholder, not Element)
-   - Read the description file first to see available instances
-
-
-    ✅ SKIP QUESTIONS if the user already supplied the required properties/relations in their request.
-
-IMPORTANT: This tool is for DESCRIPTION files only. Instances are specific individuals (like "FireFighter", "R1"), not type definitions.
-
-Auto-resolves simple or qualified types and adds missing imports. If a name is ambiguous, you'll be prompted to disambiguate; use suggest_oml_symbols only as a last resort to discover names.
-
-OML Instance Syntax:
-  instance <name> : <type1>, <type2> [
-      <property> <value>
-      <relation> <targetInstance>
-  ]`,
+Behavior:
+- Resolves simple or qualified type/property names
+- Adds missing imports automatically when possible
+- Returns clear errors for missing symbols or wrong ontology type`,
     paramsSchema,
 };
 
@@ -64,9 +40,9 @@ export const createConceptInstanceMetadata = {
     severity: 'critical' as const,
     version: '1.0.0',
     shortDescription: 'Create an instance of a concept in a description file',
-    description: 'Creates a new concept instance (individual) in a description file with property and relation assertions.',
+    description: 'Creates a new concept instance (individual) in a description file with deterministic mutation; methodology orchestration is handled by skill workflow.',
     tags: ['instance-creation', 'description', 'ai-friendly', 'core'],
-    dependencies: ['route_instance'],
+    dependencies: ['extract_description_schemas', 'enforce_methodology_rules'],
     addedDate: '2024-01-01',
 };
 

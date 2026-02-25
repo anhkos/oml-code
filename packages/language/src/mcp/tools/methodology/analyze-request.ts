@@ -11,6 +11,7 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import { resolvePlaybookPath, loadPlaybook } from './core/index.js';
 import type { MethodologyPlaybook, DescriptionConstraint } from './playbook-types.js';
+import type { ToolMetadata } from '../types.js';
 
 export const analyzeMethodologyRequestTool = {
     name: 'analyze_methodology_request' as const,
@@ -75,6 +76,19 @@ Instead, explain the violation and ask the user how to fix it.`,
         freeformRequest: z.string().optional()
             .describe('The user\'s original request in natural language (for context)'),
     },
+};
+
+export const analyzeMethodologyRequestMetadata: ToolMetadata = {
+    id: 'analyze_methodology_request',
+    displayName: 'Analyze Methodology Request',
+    layer: 'methodology',
+    severity: 'medium',
+    version: '1.0.0',
+    shortDescription: 'Preflight user requests against playbook constraints',
+    description: 'Playbook-driven preflight analysis for ambiguous requests. Preferred to run through skill orchestration in hybrid mode.',
+    tags: ['methodology', 'preflight', 'skill-preferred', 'phase-2-candidate'],
+    dependencies: ['extract_description_schemas'],
+    addedDate: '2024-01-01',
 };
 
 interface AnalysisResult {

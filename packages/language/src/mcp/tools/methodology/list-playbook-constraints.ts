@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { ToolMetadata } from '../types.js';
 import { 
     resolvePlaybookPath, 
     loadPlaybook, 
@@ -55,6 +56,19 @@ RETURNS:
         propertyFilter: z.string().optional()
             .describe('Filter constraints by property name (partial match)'),
     },
+};
+
+export const listPlaybookConstraintsMetadata: ToolMetadata = {
+    id: 'list_playbook_constraints',
+    displayName: 'List Playbook Constraints',
+    layer: 'methodology',
+    severity: 'low',
+    version: '1.0.0',
+    shortDescription: 'List constraint IDs and filters for playbook updates',
+    description: 'Constraint discovery helper for playbook maintenance. Preferred to run through skill orchestration in hybrid mode.',
+    tags: ['methodology', 'playbook', 'skill-preferred', 'phase-2-candidate'],
+    dependencies: ['update_playbook'],
+    addedDate: '2024-01-01',
 };
 
 export async function listPlaybookConstraintsHandler(params: {

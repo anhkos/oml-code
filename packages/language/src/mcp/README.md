@@ -192,6 +192,8 @@ Tools for managing SWRL-style rules.
 
 Higher-level tools for common workflows.
 
+**Hybrid recommendation:** keep parser/deterministic tools in MCP, and prefer agent skill orchestration for playbook-driven routing/preparation/preflight logic.
+
 | Tool | Description |
 |------|-------------|
 | `ensure_imports` | Ensures all required imports are present |
@@ -201,6 +203,13 @@ Higher-level tools for common workflows.
 | `clarify_methodology_preferences` | Interactively extract relations and collect voice/direction preferences |
 | `extract_methodology_rules` | Generates a "Playbook" from vocabulary files for consistent modeling |
 | `enforce_methodology_rules` | Validates descriptions against a methodology playbook |
+
+**Moved to skill orchestration (no longer exposed as MCP tools):**
+- `analyze_methodology_request`
+- `route_instance`
+- `prepare_instance`
+- `list_playbook_constraints`
+- `update_playbook`
 
 #### Understanding the Methodology Playbook System
 

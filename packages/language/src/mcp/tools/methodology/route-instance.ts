@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { MethodologyPlaybook, DescriptionSchema } from './playbook-types.js';
 import { resolvePlaybookPath, loadPlaybook as loadPlaybookFromCore } from './core/index.js';
+import type { ToolMetadata } from '../types.js';
 
 export const routeInstanceTool = {
     name: 'route_instance' as const,
@@ -48,6 +49,19 @@ Output includes:
         playbookPath: z.string().optional().describe('Path to the methodology playbook (auto-detects if not provided)'),
         workspacePath: z.string().optional().describe('Workspace path for file search (auto-detects from CWD)'),
     },
+};
+
+export const routeInstanceMetadata: ToolMetadata = {
+    id: 'route_instance',
+    displayName: 'Route Instance',
+    layer: 'methodology',
+    severity: 'medium',
+    version: '1.0.0',
+    shortDescription: 'Route instance placement to the best description file',
+    description: 'Playbook-driven routing helper for instance placement. Preferred to run through skill orchestration in hybrid mode.',
+    tags: ['methodology', 'routing', 'skill-preferred', 'phase-2-candidate'],
+    dependencies: ['extract_description_schemas'],
+    addedDate: '2024-01-01',
 };
 
 /**

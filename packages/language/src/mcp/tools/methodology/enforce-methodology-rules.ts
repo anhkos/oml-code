@@ -83,7 +83,7 @@ export const enforceMethodologyRulesMetadata = {
     shortDescription: 'Validate description files against methodology playbook rules',
     description: 'Validates OML description files for compliance with methodology rules including relation directions, property constraints, and type restrictions.',
     tags: ['validation', 'methodology', 'rules', 'enforcement'],
-    dependencies: ['route_instance'],
+    dependencies: ['extract_description_schemas'],
     addedDate: '2024-01-01',
 };
 

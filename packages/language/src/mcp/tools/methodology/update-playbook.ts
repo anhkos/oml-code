@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import type { ToolMetadata } from '../types.js';
 import type { 
     RelationRule,
     RelationEntityRule,
@@ -390,6 +391,19 @@ EXAMPLES:
         removeInstanceTemplate: z.string().optional()
             .describe('Remove instance template by ID'),
     },
+};
+
+export const updatePlaybookMetadata: ToolMetadata = {
+    id: 'update_playbook',
+    displayName: 'Update Playbook',
+    layer: 'methodology',
+    severity: 'medium',
+    version: '1.0.0',
+    shortDescription: 'Update methodology playbook YAML sections and constraints',
+    description: 'Playbook editing helper for methodology maintenance. Preferred to run through skill orchestration in hybrid mode.',
+    tags: ['methodology', 'playbook', 'skill-preferred', 'phase-2-candidate'],
+    dependencies: ['list_playbook_constraints'],
+    addedDate: '2024-01-01',
 };
 
 // ============================================================================
